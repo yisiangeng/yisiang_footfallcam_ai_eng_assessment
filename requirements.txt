@@ -1,0 +1,12 @@
+# Core pipeline dependencies -- required to run src/staff_id.py
+opencv-python==5.0.0.93
+numpy==2.5.3
+scipy==1.18.1
+torch==2.14.0
+ultralytics==8.4.143
+lap==0.5.13
+
+# Optional: only needed for the --use-clip flag (off by default, see CLAUDE.md).
+# Large download (~2GB incl. torch's own CUDA wheels on some platforms) -- omit if
+# you don't plan to use --use-clip.
+transformers==5.16.1
