@@ -378,8 +378,9 @@ so far.
 
 ## Deliverables still needed
 
-- [ ] 1-2 page write-up (`DOCUMENTATION.md` — currently empty; the "Evaluation" section above
-      has the numbers to draw from)
+- [x] 1-2 page write-up — done: `DOCUMENTATION_FINAL.md` / `.docx` (the condensed deliverable)
+      plus `DOCUMENTATION_FULL.md` (unabridged personal-reference copy); drew on the
+      "Evaluation" numbers above
 - [x] Precision/recall/F1 evaluation against labeled frames (`SOLUTION_PLAN.md` 2.6) — done,
       see "Evaluation" above; ground truth from the user watching `sample.mp4` directly
 - [ ] Test against a second video (only ever tested against `sample.mp4` so far)

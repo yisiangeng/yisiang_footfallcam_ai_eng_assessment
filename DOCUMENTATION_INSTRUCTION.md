@@ -1,7 +1,10 @@
 # DOCUMENTATION_INSTRUCTION.md
 
-Outline given for `DOCUMENTATION.md` (the 1-2 page write-up deliverable). Kept here as the
-source brief so it can be checked against as the document evolves.
+Outline given for the 1-2 page write-up deliverable, originally drafted as a single
+`DOCUMENTATION.md` and later split into `DOCUMENTATION_FINAL.md` (the actual deliverable, this
+outline applies to it) and `DOCUMENTATION_FULL.md` (an unabridged personal-reference copy, not
+itself held to this outline's 2-page limit). Kept here as the source brief so it can be checked
+against as the document evolves.
 
 ## Outline
 
@@ -47,3 +50,20 @@ source brief so it can be checked against as the document evolves.
   `Project`, `Repo`, `Solution`) — the Problem/Task framing is redundant with what the Solution
   bullet and the rest of the document already cover, and the section is only worth 5% of the
   total.
+- The single draft was later split into two files: `DOCUMENTATION_FULL.md` (the complete
+  original, kept unabridged for personal reference) and `DOCUMENTATION_FINAL.md` (the actual
+  deliverable). Only `DOCUMENTATION_FINAL.md` was then curated further, acting as an AI-engineer
+  reviewer selecting what a hiring panel actually needs:
+  - Assumptions: trimmed from 9 to 6 (cut the tracker-ID-trust, "doesn't teleport"
+    gap-bridging, and static-camera assumptions as implementation nuance rather than
+    decision-shaping; the remaining six were then rewritten as shorter, single sentences).
+  - Challenges & Solutions table: trimmed from 10 to 7 rows (cut the YOLO-retest story, the
+    reviewer-UX crop redesign, and the dark-reference-photo tip as process/tooling detail
+    rather than core model-design decisions), then further to the 4 judged most serious as
+    computer-vision problems and most pipeline-shaping: mask-aware ROI extraction, the CLIP
+    rejection, the clothing-change/re-ID ceiling, and tracking fragmentation.
+  - Known limitations: trimmed from 5 to 4 bullets (merged the two "identity-check gap" bullets
+    into one).
+  - The Results table's third row ("Identity-aware") was flagged as a candidate cut (no fair
+    post-fix counterpart to compare it against) but this was left as an open recommendation,
+    not yet acted on — see the file itself for the current row count.

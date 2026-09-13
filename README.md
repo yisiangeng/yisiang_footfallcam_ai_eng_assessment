@@ -45,7 +45,7 @@ See `pipeline_diagram.png` for the full step-by-step diagram.
 | `sample.mp4` | The video provided for this assessment |
 | `yolov8n-seg.pt` | Pretrained detection weights (bundled so it also works offline) |
 | `requirements.txt` | Python dependencies |
-| `DOCUMENTATION_FINAL.md` / `.docx` | **Start here** — the short write-up: assumptions, methodology, results, and how to use it |
+| `DOCUMENTATION_FINAL.md` | **Start here** — the short write-up: assumptions, methodology, results, and how to use it (a `.docx`/PDF copy can be generated from this on request) |
 | `DOCUMENTATION_FULL.md` | The unabridged version of the same write-up, with every assumption/challenge/limitation kept in, for anyone who wants the full detail |
 | `pipeline_diagram.png` | Standalone copy of the pipeline diagram |
 | `KNOWLEDGE.md`, `LOG.md`, `SOLUTION_PLAN.md` | Internal engineering notes — design reasoning, a chronological build log, and the original planning doc. Not required reading; kept for anyone curious how the pipeline reached its current form |

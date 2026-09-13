@@ -163,7 +163,9 @@ Deployment constraints (lightweight model choice, optional frame subsampling, ba
 
 ## 5. Deliverables Checklist (per task instructions)
 
-- [ ] 1–2 page documentation highlighting key solution parts
-- [ ] Code script / repository link
-- [ ] Annotated output video or other visualization aid
-- [ ] Ability to run live on a new, unseen test video during the interview
+- [x] 1–2 page documentation highlighting key solution parts — `DOCUMENTATION_FINAL.md` / `.docx`
+- [x] Code script / repository link — `src/staff_id.py`, pushed to GitHub (see `README.md`)
+- [x] Annotated output video or other visualization aid — `annotated.mp4`, produced by every run
+- [ ] Ability to run live on a new, unseen test video during the interview — the guided/interactive
+      flow (2.8) is implemented and used repeatedly on `sample.mp4`, but not yet validated against
+      a genuinely different second video (see `KNOWLEDGE.md`, "Deliverables still needed")

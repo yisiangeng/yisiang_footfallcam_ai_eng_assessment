@@ -737,3 +737,32 @@ evidenced warning rather than an implicit gotcha. `#286` couldn't be found anywh
 run's `staff_detections.csv` at all -- asked the user for a timestamp to pin down what it
 actually refers to (possibly a misread of a yellow "REVIEW?" label, or from a different
 viewing).
+
+### Documentation write-up, repo push, and a later correctness pass
+
+Wrote the deliverable write-up in stages: an initial single `DOCUMENTATION.md` (Executive
+summary, Assumptions, Methodology & Pipeline with a rendered diagram, Results, Steps to Use,
+Challenges/Solutions/Limitations), a matplotlib-generated pipeline diagram (`pipeline_diagram.png`,
+embedded via an HTML->headless-Chrome->PDF path and a separate python-docx path for an editable
+Word version), then split into two files at the user's request: `DOCUMENTATION_FULL.md` (the
+unabridged original, kept for personal reference) and `DOCUMENTATION_FINAL.md` (the same content,
+then deliberately trimmed -- acting as an AI-engineer reviewer curating for a hiring panel -- down
+to only the assumptions/challenges/limitations judged most impactful; see the file's own history
+for exactly what was cut and why). The original combined `DOCUMENTATION.md` no longer exists
+once the split happened. Also wrote `README.md` (repo front door: intro, setup, usage) and pushed
+everything to GitHub (`.gitignore` added first to keep `.venv/`, `output/`, and local runtime
+state out of the repository).
+
+**A later "check everything" correctness pass found the docs had drifted from reality in a few
+places**, all fixed in this same pass: `CLAUDE.md` and `KNOWLEDGE.md` still described the old,
+now-superseded single `DOCUMENTATION.md` as "empty" instead of pointing at
+`DOCUMENTATION_FINAL.md`/`DOCUMENTATION_FULL.md`; `CLAUDE.md` and this file's own "Round 2" entry
+above still described `debug_archive/round1_crops/`'s five debug images as "kept, not deleted,"
+but they had since actually been removed from the repo (a separate commit, `Remove debug crop
+images`) -- the folder is now empty and the images exist only as filenames referenced in this
+file's history, not as real files; and `SOLUTION_PLAN.md`'s deliverables checklist (section 5)
+was still fully unchecked despite three of its four items being done. Also found: the generated
+`DOCUMENTATION_FINAL.docx`/`DOCUMENTATION_FULL.docx` files no longer existed on disk (deleted at
+some point after generation, cause unconfirmed) even though `README.md` references a `.docx`
+alongside the `.md`, and `_doc_assets/DOCUMENTATION.html` was a stale intermediate left over from
+the pre-split single-document PDF build, no longer corresponding to any current source file.
