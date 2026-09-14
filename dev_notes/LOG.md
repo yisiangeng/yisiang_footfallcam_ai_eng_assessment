@@ -858,3 +858,97 @@ Also fixed a real gap from the earlier `dev_notes/` reorganization: that pass up
 `src/staff_id.py` itself, which had 26 bare `LOG.md` mentions and 1 `SOLUTION_PLAN.md` mention
 in its own docstring/comments (e.g. the module docstring's "Design rationale: SOLUTION_PLAN.md"
 line). Bulk-fixed the same way as the other files.
+
+### Readability pass on staff_id.py, then a scipy silent-fallback bug found during it
+
+User asked for a thorough readability check of `staff_id.py` specifically (not a correctness
+audit). Applied three low-risk, additive fixes: named the Pass-2 annotated-video colors
+(`STAFF_BOX_COLOR`/`REVIEW_BOX_COLOR`/`OTHER_BOX_COLOR`) instead of leaving them as inline BGR
+tuples -- directly guards against a repeat of the BGR/RGB color bug found earlier this session;
+added docstrings to `run()` and `build_reference()`, the two largest functions in the file and
+previously the only ones without one; added a comment clarifying that the Savitzky-Golay
+window-size calculation always resolves to a constant 5 under the current `len(entries) >= 5`
+guard (verified computationally for n=5..29), since it reads like a dynamic clamp but isn't
+reachable as anything else.
+
+Separately, a "make sure everything works well" request led to actually running the full
+pipeline end-to-end (not just `py_compile`) for the first time this session, which surfaced two
+real issues fixed along the way: `CLAUDE.md` still described the (already-deleted)
+`demo_visuals/` folder and had inconsistent `dev_notes/` path prefixing for two files in its
+own Project Layout list -- both stale-doc issues, fixed. More substantively: `scipy` is
+documented as a required dependency (`requirements.txt`, `CLAUDE.md`) for Savitzky-Golay
+coordinate smoothing, but the code wrapped the import and the smoothing call in a bare
+`except Exception: pass` -- so a missing/broken scipy would silently skip smoothing with zero
+indication to the user, contradicting its documented "required" status. Flagged to the user
+first (same pattern as the transformers fix); confirmed both that scipy should stay documented
+as required (the user confirmed smoothing visibly improves the trajectory, verified earlier by
+watching the output) and that the fallback should just stop being silent. Fixed: narrowed the
+`except` to only `ImportError`, computed once before the per-track loop (not per-track), and
+added a one-line warning on that path; any other unexpected error from `savgol_filter` itself
+now propagates as a real crash instead of being swallowed. Verified both paths directly: with
+scipy present, smoothing output is unchanged; with `sys.modules['scipy.signal'] = None`
+simulating it missing, the warning path fires and the module still imports/runs.
+
+### Live-demo risk assessment (`dev_notes/UNEXPECTED.md`) + 8 pre-flight/robustness fixes
+
+User asked what could go wrong during the live interview demo with an unseen test video
+(prompted by "what if the video is too long"), then asked whether/how those risks could be
+mitigated in code, explicitly flagging that any fix touching the actual detection/matching
+signal needed a risk assessment first ("will this break the model performance?"). Ten risks
+were identified and triaged into three buckets: 8 judged safe to fix (diagnostics, workflow
+additions, or changes provably equivalent-by-default on `sample.mp4`), and 2 deferred because
+they'd change the actual appearance/motion signal (scale-invariant motion thresholds for a
+different camera resolution; chromaticity-only Lab matching for lighting robustness) and could
+regress the numbers already reported in `DOCUMENTATION_FINAL.md` without a real before/after
+evaluation, which wasn't run. Full writeup, including the deferred items and the reasoning for
+each, is in `dev_notes/UNEXPECTED.md`.
+
+Implemented the 8 safe items in `staff_id.py`: (1) a `check_gui_available()` startup check that
+fails fast with the exact fix for the known `opencv-python`/`opencv-python-headless` conflict,
+instead of a cryptic `cv2.error` mid-demo; (2) `validate_video()` confirms the video actually
+opens and its first frame reads before anything else runs; (3) `check_outputs_writable()`
+probes every output filename (non-destructively, append-mode) for a lock before Pass 1 starts,
+reusing the existing retry-prompt UX; (4) a `--max-review-events N` flag to cap live review
+popups for a time-boxed demo; (5) `--min-walk-speed` scaled by `REFERENCE_FPS / fps` so a
+different frame rate still requires the same real-world walking speed, not the same raw pixel
+count per frame; (6) a warning if too many tracks cluster near `--staff-threshold`; (7)
+color-matched tracks that fail the motion-based track filter are no longer silently dropped --
+they're now routed into the same possible-staff review flow with a new `stationary` flag/CSV
+column, so a genuinely seated/stationary staff member on an unseen video at least reaches a
+human instead of vanishing with zero trace (this can only add review candidates, never
+auto-promote one to STAFF, so it doesn't loosen precision); (8) `preview_reference_score()`
+spot-checks the reference against 6 sampled frames in a few seconds before committing to the
+full multi-minute Pass 1, warning if the best score found is suspiciously low.
+
+Verified by re-running the full pipeline on `sample.mp4` end-to-end and diffing against the
+pre-fix baseline: core result identical in every number that matters (`4 of 69` staff,
+`75/1341` frames, `82` staff rows/`7` interpolated, `166`-frame highlight clip, `1`
+auto-rejected conflict) -- confirming items 5 and 7 are behavior-neutral on this video by
+construction (sample.mp4 is exactly 25.0fps, matching `REFERENCE_FPS` with zero rounding
+error; the stationary-review addition can only add candidates, not change auto-confirmed
+staff). `possible_staff_review.csv` correctly grew from 4 to 12 rows, the 8 new ones all
+`stationary=True` with the right reason text, for tracks the pre-fix per-track table had
+already shown as high-scoring-but-seated (e.g. #77 at 0.84, #40 at 0.85) and silently dropped.
+The new pre-flight console output (`Video: 960x720, 25.0fps...`, `Quick preview:... Best
+color-match score found... 0.83`) printed correctly and didn't false-positive-warn on the
+known-good reference. Verification run's `output_verify/` deleted after confirming.
+
+### Real interactive run surfaced a genuine "too many popups" complaint, resolved via --max-review-events 5
+
+User ran the full guided flow for real (not `--skip-review`) and reported 17 review events as
+"slightly too much," while confirming the actual output was good and accurate. Broke down
+`possible_staff_review.csv` from that run: 4 original (unmatched-color) events at a 50% confirmed-STAFF
+hit rate, vs. 13 new `stationary` events (added earlier this session, item #7 in
+`dev_notes/UNEXPECTED.md`) at a 0% hit rate. Discussed the tradeoff directly with the user
+(does more review help or hurt for a live demo specifically, is "most needs review" sortable)
+before acting, rather than assuming a fix. Landed on: don't weaken the check itself (it did its
+job correctly, just had zero payoff on this specific video by chance -- `sample.mp4`'s staff
+member is never actually seated, so the safety net it exists for never triggered); instead cap
+live review count for the demo specifically, relying on the existing (incidental but useful)
+property that `stationary` events are always appended after the original category in
+`possible_events`, so a cap naturally prioritizes the historically higher-hit-rate category
+without needing new sorting logic. Set `--max-review-events 5` as the recommended live-demo
+invocation in `CLAUDE.md` ("Commands") and `README.md` ("Quick start"), with the reasoning and
+full data written into `dev_notes/UNEXPECTED.md`'s new "Real interactive run" section. Noted a
+cleaner future option (explicit priority-sort before the cap, e.g. by descending color score)
+as a flagged-but-not-implemented follow-up, not a promise.

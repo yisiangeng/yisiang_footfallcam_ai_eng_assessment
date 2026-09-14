@@ -49,7 +49,7 @@ See `pipeline_diagram.png` for the full step-by-step diagram.
 | `pipeline_diagram.png` | Standalone copy of the pipeline diagram |
 | `KNOWLEDGE.md` | Design reasoning: why the pipeline is built the way it is, and its known limitations. Not required reading, but the most useful of the internal notes if you only read one |
 | `AI Evaluation Test.pdf` | The original task brief |
-| `dev_notes/` | Personal working history (chronological build log, the original planning doc, the unabridged documentation draft, this document's own outline/brief, and archived debug images from an earlier discarded approach). Not required reading — kept for the author's own record, not for a reviewer |
+| `dev_notes/` | Personal working history (chronological build log, the original planning doc, the unabridged documentation draft, this document's own outline/brief, a live-demo risk assessment, and archived debug images from an earlier discarded approach). Not required reading — kept for the author's own record, not for a reviewer |
 
 ## Setup
 
@@ -67,13 +67,18 @@ an internet connection to fetch it.
 
 ## Quick start
 
-For a first-time or live-demo run — no command-line flags needed:
+For a first-time or live-demo run — still fully guided, just one recommended flag:
 
 1. Put the video you want to test into this project folder.
 2. Open a terminal here and run:
    ```bash
    .venv\Scripts\python.exe src\staff_id.py
+   .venv\Scripts\python.exe src\staff_id.py --max-review-events 6
    ```
+   (`--max-review-events 6` caps how many review popups you're asked live, so the demo
+   doesn't stall on a long run of them — anything past the cap is still recorded in
+   `possible_staff_review.csv`, just not shown live. Safe to omit for the uncapped
+   behavior; see `CLAUDE.md`, "Commands" for why 5.)
 3. Pick the video from the list it shows you.
 4. A window pops up: scrub to a frame where the staff member is clearly visible,
    drag a box around them, and press Enter. This is the only manual step — it
@@ -116,6 +121,7 @@ Everything lands in `--output-dir` (`output/` by default):
 - `resolution` — `confirmed STAFF` / `confirmed not staff` / `needs manual review`
 - `color_outlier` — True if flagged because part of the event's clothing color diverged from the rest (possibly a different person mid-event)
 - `position_jump` — True if flagged because of an implausible position jump partway through (possibly a tracker ID-switch)
+- `stationary` — True if flagged because the color matched well but the track wasn't detected walking (possibly seated/stationary staff — see the motion-based track filter)
 
 **`auto_rejected_conflicts.csv` columns:**
 - `track_id` — the track that was auto-rejected
@@ -133,7 +139,9 @@ for development, or once you already know the reference frame/box):
 ```
 
 Add `--skip-review` to skip the Y/N/S popups entirely (leaves anything
-ambiguous unresolved in `possible_staff_review.csv` instead). Run
+ambiguous unresolved in `possible_staff_review.csv` instead), or
+`--max-review-events N` to cap how many are shown live and defer the rest —
+useful for keeping a time-boxed demo moving. Run
 `python src/staff_id.py --help` for the full list of tunable thresholds.
 
 ## Read next

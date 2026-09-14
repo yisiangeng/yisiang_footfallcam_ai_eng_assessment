@@ -41,13 +41,28 @@ it up front to avoid a wasted multi-minute run; see `dev_notes/LOG.md`, "Round 2
 
 ## Commands
 
-Current pipeline (round 2). Guided mode — no flags, asks which video and output folder
-interactively, then walks through picking the staff reference on-screen step by step (this is
-the intended live-demo flow for an unseen test video, see `dev_notes/SOLUTION_PLAN.md` 2.8):
+Current pipeline (round 2). Guided mode — asks which video and output folder interactively,
+then walks through picking the staff reference on-screen step by step (this is the intended
+live-demo flow for an unseen test video, see `dev_notes/SOLUTION_PLAN.md` 2.8). Recommended
+live-demo invocation adds `--max-review-events` on top of the otherwise flag-less guided flow
+(guided mode only replaces the `--video`/`--output-dir` prompts — every other flag, including
+this one, still applies normally regardless):
 
 ```bash
-.venv/Scripts/python.exe src/staff_id.py
+.venv/Scripts/python.exe src/staff_id.py --max-review-events 5
 ```
+
+Why 5: measured directly on a real run of `sample.mp4` (17 possible-staff events: 4 from the
+original unmatched-color category, 2 of which were real staff; 13 from the newer `stationary`
+category, none of which were) — see `dev_notes/UNEXPECTED.md`, risk #4 and #7. Since
+`stationary` events are always appended after the original category, a cap around 5 shows the
+historically higher-hit-rate events live and defers the rest to `possible_staff_review.csv`
+rather than spending live demo time on a category that happened to have a 0% hit rate on this
+video. Treat 5 as a starting point, not a hard rule — check the printed event count on the
+actual test video and raise it if there's time to spare. Omit the flag entirely (plain
+`python src/staff_id.py`) for the uncapped "real" behavior — e.g. if asked how thorough the
+review step actually is, the full uncapped `possible_staff_review.csv` from a run without the
+cap is the more convincing answer than the capped one.
 
 Scripted/repeated runs (e.g. this headless dev environment, or automated re-runs on a known
 video) skip the prompts by passing flags directly:
@@ -72,6 +87,20 @@ Key flags (see `python src/staff_id.py --help`):
   events (see "Possible-staff flagging" below) — leaves them unresolved in
   `possible_staff_review.csv` instead. Needed for scripted/headless runs (no display to pop a
   window on); optional otherwise.
+- `--max-review-events N`: cap how many possible-staff events are shown interactively (e.g. to
+  keep a time-boxed live demo moving) — any beyond N are left as `needs manual review` in
+  `possible_staff_review.csv` without a popup, same as `--skip-review` but only past the cap.
+  Added as part of the demo-risk mitigations in `dev_notes/UNEXPECTED.md`.
+
+Before any of the above runs, a short pre-flight check sequence (see `dev_notes/UNEXPECTED.md`
+for the full reasoning): validates the video actually opens and reads (fails fast with a clear
+message on a corrupt/unsupported file instead of failing deep inside an interactive step),
+checks `cv2` GUI windows actually work on this machine if the run will need one (catches the
+`opencv-python`/`opencv-python-headless` conflict above immediately rather than mid-demo), and
+probes every output filename for a lock from a leftover open file before Pass 1 starts. Once
+the reference is built, a quick multi-second spot-check scores it against a handful of sampled
+frames and warns if the best match found is suspiciously low, before the full multi-minute
+Pass 1 commits to a possibly-bad reference pick.
 
 Outputs land in `--output-dir` (default `output/`):
 - `staff_detections.csv` — `frame, timestamp_s, staff_present, track_id, x, y, match_score,
@@ -88,10 +117,13 @@ Outputs land in `--output-dir` (default `output/`):
   (see "Possible-staff flagging" below); one row/crop per flagged event, with a `resolution`
   column (`confirmed STAFF` / `confirmed not staff` / `needs manual review`), a `color_outlier`
   column (`True` for a sub-event split out because its color diverged from the rest of a
-  larger merged event), and a `position_jump` column (`True` for a sub-event split out because
-  of an implausible position jump from the previous fragment — see "Possible-staff flagging"
-  below). Each `review_event_*.jpg` is a side-by-side pair of generously padded, highlighted
-  context crops (start and end of the fragment, not a single tight torso crop) — see
+  larger merged event), a `position_jump` column (`True` for a sub-event split out because
+  of an implausible position jump from the previous fragment), and a `stationary` column
+  (`True` for a track whose color matched well but wasn't detected walking, and so is flagged
+  for human review instead of being silently dropped by the motion-based track filter — see
+  `dev_notes/UNEXPECTED.md`) — see "Possible-staff flagging" below for the first two. Each
+  `review_event_*.jpg` is a side-by-side pair of generously padded, highlighted context crops
+  (start and end of the fragment, not a single tight torso crop) — see
   `padded_highlight_crop()`/`hstack_crops()`.
 - `auto_rejected_conflicts.csv` — only written if a simultaneous-staff conflict was found (see
   "Simultaneous-staff conflict resolution" below); one row per auto-rejected track, with which
@@ -144,7 +176,12 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    detector) also matches seated people, and this office has more than one person in similarly
    light-colored clothing — color alone can't disambiguate two people at the same desk, but a
    person actually walking through the open corridor was the one context round 1 visually
-   confirmed as unambiguous.
+   confirmed as unambiguous. `--min-walk-speed` (a raw px/frame threshold) is internally scaled
+   by `REFERENCE_FPS / fps` so a different frame rate still requires the same real-world
+   walking speed, not the same raw pixel count per frame — see `dev_notes/UNEXPECTED.md`. A
+   track that clears the color threshold but fails this motion filter isn't silently dropped
+   any more either — it's routed into the possible-staff review below as a `stationary` event
+   (same file).
 4. **Fragment bridging + gap interpolation (`bridge_track_fragments()`,
    `interpolate_staff_gaps()`):** measured directly on `sample.mp4` (see `dev_notes/LOG.md`, "Round 2"
    evaluation entry) — tracking fragmentation, not the appearance-matching ceiling, turned out
@@ -213,6 +250,13 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    position-jump split had *already* correctly flagged, because the crop was too tight to judge
    identity and they fell back to clothing color — precisely the confounded signal in that case
    (see `dev_notes/LOG.md`, "Round 2").
+   **Also flagged here (not silently dropped): color-matched tracks that fail the
+   motion-based track filter** (`stationary` flag on their event) — one per track, no
+   time-merging needed since there's no "does this color repeat" ambiguity to resolve first
+   the way there is for unmatched color. Added so a genuinely seated/stationary staff member on
+   an unseen video (this pipeline's biggest documented blind spot — see `KNOWLEDGE.md`, "Known
+   limitations") at least reaches a human instead of vanishing with zero trace. See
+   `dev_notes/UNEXPECTED.md`.
    **Why not fully automate this decision:** tested and rejected — on real data from this
    video, a flagged event has turned out to be a genuinely different person, so auto-promoting
    would silently mislabel someone. The cost of a wrong silent auto-label (an incorrect record
@@ -254,10 +298,6 @@ No test suite or build step — this is a single evaluation script, run directly
 - `pipeline_diagram.png` — the pipeline diagram embedded in the documentation, generated by a
   one-off matplotlib script not checked into the repo (a documentation tool, not part of the
   pipeline itself).
-- `demo_visuals/` — extra visuals for the interview/demo: `staff_trajectory.png` (the staff
-  member's (x, y) path over time) and `staff_highlight_clip.mp4` (a trimmed `annotated.mp4`
-  keeping only the frames where staff is present). Built from one specific past run's
-  `output/`, not regenerated automatically by the pipeline.
 - `README.md` — the repo's front door: project intro, setup, and usage instructions for
   someone landing on the repo without prior context.
 - `dev_notes/` — everything below is personal working history, not required interviewer
@@ -267,10 +307,15 @@ No test suite or build step — this is a single evaluation script, run directly
     "Testing 1" history (superseded `TESTING1_NOTES.md`, which no longer exists). Add new
     entries here as work happens rather than starting another notes file.
   - `dev_notes/SOLUTION_PLAN.md` — the active design doc for the current (round 2) approach.
-  - `DOCUMENTATION_FULL.md` — the unabridged version of the deliverable write-up, with every
-    assumption/challenge/limitation kept in; personal-reference only, not the deliverable.
-  - `DOCUMENTATION_INSTRUCTION.md` — the outline/brief `DOCUMENTATION_FINAL.md` was written
-    against, plus a log of deliberate deviations from it.
+  - `dev_notes/DOCUMENTATION_FULL.md` — the unabridged version of the deliverable write-up,
+    with every assumption/challenge/limitation kept in; personal-reference only, not the
+    deliverable.
+  - `dev_notes/DOCUMENTATION_INSTRUCTION.md` — the outline/brief `DOCUMENTATION_FINAL.md` was
+    written against, plus a log of deliberate deviations from it.
+  - `dev_notes/UNEXPECTED.md` — live-demo risk assessment: what could go wrong with an unseen
+    test video during the actual interview (long video, different resolution/fps, non-walking
+    staff, GUI/environment issues, etc.), which of those were judged safe to fix automatically
+    vs. requiring a before/after accuracy check first, and the implementation status of each.
   - `debug_archive/round1_crops/` — the stray debug crop images this folder held were later
     deleted (the folder itself remains, empty); `dev_notes/LOG.md`'s "Testing 1" entry still
     references them by name as narrative history, but the actual image files no longer exist

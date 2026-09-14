@@ -1135,6 +1135,119 @@ def build_reference(video_path, ref_frame, ref_box, seg_model, clip_matcher):
     return ref_frame, ref_box, ref_crop, ref_embed, ref_lab
 
 
+# --------------------------------------------------------------------------- #
+# Pre-flight checks -- fail fast (or warn early) on demo-day risks instead of discovering them
+# deep into an interactive step or after several minutes of Pass 1. See dev_notes/UNEXPECTED.md
+# for the full list of risks considered and why these specific ones were picked as safe to fix
+# automatically (versus ones that change the actual detection/matching logic and need a
+# before/after accuracy check before being trusted).
+# --------------------------------------------------------------------------- #
+REFERENCE_FPS = 25.0  # sample.mp4's frame rate -- every px/frame motion threshold
+                       # (--min-walk-speed) was tuned against it. See run()'s use of this below.
+PREVIEW_SAMPLE_COUNT = 6      # frames spot-checked before committing to the full Pass 1
+PREVIEW_LOW_SCORE_WARNING = 0.35  # below this best-of-sample score, warn about the reference --
+                                   # well under --staff-threshold's default (0.5) so this only
+                                   # fires on a genuinely poor pick, not normal score variance.
+CLUSTER_BAND = 0.1  # a track's median score within this of --staff-threshold counts as a
+                     # "close call" for the score-clustering warning below.
+
+
+def validate_video(video_path):
+    """Open `video_path`, confirm it's actually readable, and return (fps, width, height,
+    n_frames) -- fails fast with a clear message here rather than discovering a bad/corrupt
+    file deep inside an interactive step or partway through Pass 1."""
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        cap.release()
+        sys.exit(f"Could not open video: {video_path}\n"
+                  f"Check the file exists and its codec is supported by OpenCV -- mp4/h264 is "
+                  f"safest; an unusual container/codec can fail here without a clear reason.")
+    ok, _ = cap.read()
+    if not ok:
+        cap.release()
+        sys.exit(f"Opened {video_path} but couldn't read its first frame -- the file may be "
+                  f"corrupt, or use a codec OpenCV can't decode on this machine.")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    if n_frames <= 0 or W <= 0 or H <= 0:
+        sys.exit(f"Video opened but reported invalid metadata (frames={n_frames}, "
+                  f"size={W}x{H}) -- OpenCV may not be parsing this file correctly.")
+    print(f"Video: {W}x{H}, {fps:.1f}fps, {n_frames} frames ({n_frames / fps:.1f}s)")
+    return fps, W, H, n_frames
+
+
+def check_gui_available():
+    """True if cv2 can actually open a GUI window on this machine. Catches the known
+    opencv-python vs opencv-python-headless conflict (see CLAUDE.md, "Environment") up front,
+    rather than failing deep inside an interactive step with a cryptic cv2.error."""
+    try:
+        win = "__gui_check__"
+        cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+        cv2.destroyWindow(win)
+        return True
+    except cv2.error:
+        return False
+
+
+def _probe_writable(path):
+    """Try to open `path` for writing without truncating it (append mode -- doesn't touch
+    existing content, unlike 'w'), to check it's not locked by another program. Retries with
+    the same friendly prompt as open_for_write_retrying()."""
+    while True:
+        try:
+            open(path, "ab").close()
+            return
+        except PermissionError:
+            _wait_for_retry(path)
+
+
+def check_outputs_writable(out_dir):
+    """Pre-flight check: confirm every output filename this run could produce isn't locked by
+    another program (e.g. left open in Excel/a photo viewer from a previous run), before Pass 1
+    starts -- so that's caught in seconds, not after several minutes of processing."""
+    for name in ("staff_detections.csv", "annotated.mp4", "reference_crop.jpg",
+                 "staff_trajectory.png", "staff_highlight_clip.mp4",
+                 "possible_staff_review.csv", "auto_rejected_conflicts.csv"):
+        _probe_writable(out_dir / name)
+
+
+def preview_reference_score(video_path, seg_model, ref_lab, n_frames,
+                             sample_count=PREVIEW_SAMPLE_COUNT):
+    """Quick spot-check: run detection on a handful of frames spread across the video and score
+    every person found against the reference, before committing to the full multi-minute Pass 1.
+    Returns the best score found (0.0 if nobody was detected in any sampled frame at all)."""
+    print()
+    print(f"Quick preview: scoring the reference against {sample_count} sample frames spread "
+          f"across the video (a few seconds)...")
+    sample_frames = np.linspace(0, max(n_frames - 1, 0), sample_count, dtype=int)
+    best_score = 0.0
+    for f in sample_frames:
+        frame = get_frame(video_path, int(f))
+        res = seg_model.predict(frame, classes=[PERSON_CLASS], conf=0.15, verbose=False)[0]
+        if res.masks is None or len(res.boxes) == 0:
+            continue
+        boxes = res.boxes.xyxy.cpu().numpy()
+        masks = res.masks.data.cpu().numpy()
+        for box, mask in zip(boxes, masks):
+            mask_full = cv2.resize(mask, (frame.shape[1], frame.shape[0]))
+            crop, mask_crop = masked_crop(frame, box, mask_full)
+            if crop is None:
+                continue
+            own_lab = mean_lab(crop, mask_crop)
+            lab_dist = float(np.linalg.norm(own_lab - ref_lab))
+            best_score = max(best_score, max(0.0, 1.0 - lab_dist / LAB_DIST_SCALE))
+    print(f"  Best color-match score found in the quick scan: {best_score:.2f} "
+          f"(0 = no resemblance, 1 = identical)")
+    if best_score < PREVIEW_LOW_SCORE_WARNING:
+        print(f"  Warning: that's low -- the reference crop may be a poor pick (bad frame/box), "
+              f"or this person simply doesn't appear in any of the {sample_count} sampled "
+              f"frames. The full run may find little or no staff presence.")
+    return best_score
+
+
 def run(args):
     """The whole pipeline, start to finish, for one video. Long, but stays in one function
     since each stage depends on state built up by the previous one (per-frame detections,
@@ -1169,6 +1282,27 @@ def run(args):
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ---- Pre-flight checks: fail fast before wasting time on model loading / multi-minute
+    # processing (see dev_notes/UNEXPECTED.md for the risks these address) ---- #
+    fps, W, H, n_frames = validate_video(video_path)
+
+    ref_box_arg = None
+    if args.ref_box:
+        ref_box_arg = tuple(int(v) for v in args.ref_box.split(","))
+    needs_gui = (args.ref_frame is None or ref_box_arg is None) or not args.skip_review
+    if needs_gui and not check_gui_available():
+        sys.exit(
+            "GUI check failed: cv2 windows aren't working on this machine (cv2.namedWindow "
+            "raised an error). This is a known issue when both opencv-python and "
+            "opencv-python-headless are installed -- the headless one wins the shared cv2 "
+            "namespace and GUI calls silently become no-op stubs. Fix: use this project's "
+            ".venv (a clean opencv-python install), or `pip uninstall opencv-python-headless`. "
+            "See CLAUDE.md, 'Environment'.\n"
+            "To bypass GUI entirely for a scripted run: pass --ref-frame/--ref-box together "
+            "with --skip-review."
+        )
+    check_outputs_writable(out_dir)
+
     print()
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -1180,10 +1314,6 @@ def run(args):
         print("Loading CLIP matcher (--use-clip)...")
         clip_matcher = ClipMatcher(device=device)
 
-    ref_box_arg = None
-    if args.ref_box:
-        ref_box_arg = tuple(int(v) for v in args.ref_box.split(","))
-
     print("Building staff reference...")
     ref_frame_idx, ref_box, ref_crop, ref_embed, ref_lab = build_reference(
         video_path, args.ref_frame, ref_box_arg, seg_model, clip_matcher
@@ -1191,14 +1321,23 @@ def run(args):
     imwrite_retrying(out_dir / "reference_crop.jpg", ref_crop)
     print(f"Reference: frame {ref_frame_idx}, box {ref_box}")
 
-    cap = cv2.VideoCapture(str(video_path))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
+    best_preview_score = preview_reference_score(video_path, seg_model, ref_lab, n_frames)
+    if best_preview_score < PREVIEW_LOW_SCORE_WARNING and not args.skip_review:
+        choice = input("  Continue with this reference anyway? [Y/n]: ").strip().lower()
+        if choice.startswith("n"):
+            sys.exit("Cancelled -- re-run and pick a different reference frame/box.")
 
     min_track_frames = max(3, int(fps * args.min_track_seconds))
+    # sample.mp4 was calibrated at REFERENCE_FPS (25); a different fps video's
+    # --min-walk-speed (a raw px/frame threshold) is scaled here so the same real-world walking
+    # speed is what's actually required, not the same raw pixel count per frame -- see
+    # dev_notes/UNEXPECTED.md.
+    effective_min_walk_speed = args.min_walk_speed * REFERENCE_FPS / fps
+    if abs(fps - REFERENCE_FPS) > 0.5:
+        print(f"Note: this video is {fps:.1f}fps (sample.mp4 was calibrated at "
+              f"{REFERENCE_FPS:.0f}fps) -- --min-walk-speed effectively adjusted to "
+              f"{effective_min_walk_speed:.2f}px/frame to require the same real-world walking "
+              f"speed.")
 
     # ---- Pass 1: detect + track + score, single YOLO pass ---- #
     print()
@@ -1263,6 +1402,13 @@ def run(args):
     # raw dump followed by a separate count.)
     track_motion = {tid: track_motion_stats(coords) for tid, coords in track_coords.items()}
     staff_tracks = set()
+    # Color-matched tracks that fail the walking gate used to be silently dropped here -- no
+    # trace anywhere except a "not walking (seated?)" row in the diagnostic table. Now they're
+    # collected and routed into the same human-review flow as unmatched-color events below
+    # (see "stationary_events" near the possible-staff-flagging section), so a genuinely
+    # seated/stationary staff member on an unseen video gets a chance to be caught by a human
+    # instead of vanishing with zero indication. See dev_notes/UNEXPECTED.md.
+    stationary_candidates = []
     for tid, scores in track_scores.items():
         if len(scores) < min_track_frames:
             continue
@@ -1275,7 +1421,8 @@ def run(args):
         # match is ambiguous (color alone can't disambiguate two people at the same desk)
         # while a person actually walking through the open corridor was the one context
         # round 1 visually confirmed as unambiguous. See dev_notes/LOG.md, "Round 2".
-        if speed < args.min_walk_speed or rng < args.min_walk_range:
+        if speed < effective_min_walk_speed or rng < args.min_walk_range:
+            stationary_candidates.append(tid)
             continue
         staff_tracks.add(tid)
 
@@ -1332,6 +1479,20 @@ def run(args):
         print(f"  typical (median): {pctl[0]:.2f}   top 25%: {pctl[1]:.2f}   "
               f"top 10%: {pctl[2]:.2f}   top 5%: {pctl[3]:.2f}")
 
+    # Warn if a lot of tracks are close calls around --staff-threshold -- color likely isn't
+    # discriminating cleanly on this video (e.g. several similarly-dressed people), so expect
+    # more possible-staff review events than usual. See dev_notes/UNEXPECTED.md.
+    track_medians = {tid: float(np.median([s for _, s in scores]))
+                      for tid, scores in track_scores.items() if len(scores) >= min_track_frames}
+    close_calls = [tid for tid, m in track_medians.items()
+                   if abs(m - args.staff_threshold) <= CLUSTER_BAND]
+    if len(track_medians) >= 5 and len(close_calls) / len(track_medians) > 0.15:
+        print()
+        print(f"Note: {len(close_calls)} of {len(track_medians)} eligible tracks have a median "
+              f"color score within {CLUSTER_BAND:.2f} of --staff-threshold "
+              f"({args.staff_threshold:.2f}) -- color may not discriminate cleanly on this "
+              f"video. Expect more possible-staff review events than usual.")
+
     print()
     print(f"Per-track breakdown ({len(track_scores)} distinct people tracked; "
           f"a track only counts as staff if it's a good color match AND was actually "
@@ -1343,7 +1504,7 @@ def run(args):
     for tid, scores in sorted(track_scores.items(), key=lambda kv: -len(kv[1])):
         vals = [s for _, s in scores]
         speed, rng = track_motion[tid]
-        is_walking = speed >= args.min_walk_speed and rng >= args.min_walk_range
+        is_walking = speed >= effective_min_walk_speed and rng >= args.min_walk_range
         if tid in staff_tracks:
             verdict = "STAFF (bridged)" if tid in bridged_tracks else "STAFF"
         elif tid in demoted_tracks:
@@ -1373,12 +1534,35 @@ def run(args):
     possible_events = find_possible_staff_events(
         walking_but_unmatched, track_scores, track_coords, track_lab_colors, fps
     )
+
+    # Color-matched-but-not-walking tracks (collected in the track-level decision loop above)
+    # get the same review treatment -- minus bridging, which may have already pulled some of
+    # them into staff_tracks anyway, so only genuinely still-unresolved ones are added. Each is
+    # its own single-fragment event (no time-based merging needed: unlike the unmatched-color
+    # case, there's no "does this color repeat" ambiguity to resolve first). See
+    # dev_notes/UNEXPECTED.md.
+    for tid in stationary_candidates:
+        if tid in staff_tracks:
+            continue
+        frames = [f for f, _ in track_scores[tid]]
+        possible_events.append({
+            "track_ids": [tid],
+            "start_frame": min(frames),
+            "end_frame": max(frames),
+            "mean_lab": np.mean(track_lab_colors[tid], axis=0),
+            "representative_track_id": tid,
+            "likely_recurring_other_person": False,
+            "color_outlier": False,
+            "position_jump": False,
+            "stationary": True,
+        })
+
     review_rows = []  # (event_num, ev, crop_path, resolution)
     if possible_events:
         print()
-        print(f"REVIEW NEEDED: {len(possible_events)} walking event(s) found with unmatched "
-              f"clothing color that doesn't repeat elsewhere in the video -- each could be a "
-              f"different person, or the same staff member after a clothing change.")
+        print(f"REVIEW NEEDED: {len(possible_events)} event(s) found that could be staff but "
+              f"weren't auto-confirmed -- unmatched clothing color (could be a clothing change), "
+              f"or a color match that wasn't detected walking (could be seated staff).")
         for i, ev in enumerate(possible_events, 1):
             start_s, end_s = ev["start_frame"] / fps, ev["end_frame"] / fps
             rep_tid = ev["representative_track_id"]
@@ -1408,10 +1592,16 @@ def run(args):
             if ev.get("color_outlier"):
                 notes.append("color diverges from the rest of a merged event -- likely a "
                               "different person mid-event")
+            if ev.get("stationary"):
+                notes.append("color matches well but this track wasn't detected walking -- "
+                              "possibly seated/stationary staff (missed by the motion-based "
+                              "track filter), or a coincidental match with someone who's "
+                              "simply not moving")
             flag_note = "; ".join(notes) if notes else None
 
             resolution = "needs manual review"
-            if not args.skip_review:
+            under_cap = args.max_review_events is None or i <= args.max_review_events
+            if not args.skip_review and under_cap:
                 decision = confirm_event_interactive(review_crops, i, len(possible_events),
                                                       start_s, end_s, captions, flag_note)
                 if decision is True:
@@ -1430,17 +1620,22 @@ def run(args):
             writer = csv.writer(f)
             writer.writerow(["event", "start_frame", "end_frame", "start_time_s", "end_time_s",
                               "n_track_fragments", "representative_crop", "resolution",
-                              "color_outlier", "position_jump"])
+                              "color_outlier", "position_jump", "stationary"])
             for i, ev, crop_path, resolution in review_rows:
                 writer.writerow([i, ev["start_frame"], ev["end_frame"],
                                   round(ev["start_frame"] / fps, 2), round(ev["end_frame"] / fps, 2),
                                   len(ev["track_ids"]), crop_path.name, resolution,
-                                  ev.get("color_outlier", False), ev.get("position_jump", False)])
+                                  ev.get("color_outlier", False), ev.get("position_jump", False),
+                                  ev.get("stationary", False)])
         n_confirmed = sum(1 for *_, r in review_rows if r == "confirmed STAFF")
         n_rejected = sum(1 for *_, r in review_rows if r == "confirmed not staff")
         n_pending = len(review_rows) - n_confirmed - n_rejected
         print(f"  -> {n_confirmed} confirmed staff, {n_rejected} confirmed not staff, "
               f"{n_pending} still need manual review  ({review_csv_path})")
+        if args.max_review_events is not None and len(possible_events) > args.max_review_events:
+            print(f"  (Showed only the first {args.max_review_events} of {len(possible_events)} "
+                  f"events live -- --max-review-events cap; the rest are 'needs manual review' "
+                  f"in the CSV above.)")
     else:
         review_csv_path = None
         print()
@@ -1462,13 +1657,26 @@ def run(args):
               f"'interpolated' in the results table, not a real detection.")
 
     # ---- Smooth (x, y) per staff track ---- #
+    # scipy is a required dependency (requirements.txt / CLAUDE.md), not an optional one like
+    # transformers -- so a missing install is reported once, loudly, rather than silently
+    # skipping smoothing for the whole run (a bare `except Exception: pass` here previously
+    # swallowed that case with zero indication to the user; fixed after being flagged during a
+    # full readability/correctness pass -- see dev_notes/LOG.md).
+    try:
+        from scipy.signal import savgol_filter
+    except ImportError:
+        savgol_filter = None
+        print("  Warning: scipy is not installed -- staff coordinates will be left unsmoothed "
+              "(Savitzky-Golay smoothing skipped for this whole run). Run "
+              "`pip install -r requirements.txt` to enable it.")
+
     smoothed_coords = {}  # track_id -> {frame_idx: (x, y)}
     for tid in staff_tracks:
         entries = sorted(track_coords[tid], key=lambda e: e[0])
         frames_ = np.array([e[0] for e in entries])
         fx = np.array([e[3] for e in entries], dtype=np.float64)
         fy = np.array([e[4] for e in entries], dtype=np.float64)
-        if len(entries) >= 5:
+        if len(entries) >= 5 and savgol_filter is not None:
             # Savitzky-Golay needs an odd window no larger than the number of points. This
             # clamp always resolves to 5 under the `>= 5` guard just above (verified for
             # every len(entries) from 5 up) -- written this way, rather than a bare `k = 5`,
@@ -1476,12 +1684,8 @@ def run(args):
             k = min(5, len(entries) - (1 - len(entries) % 2))
             k = k if k % 2 == 1 else k - 1
             k = max(k, 3)
-            try:
-                from scipy.signal import savgol_filter
-                fx = savgol_filter(fx, k, 2)
-                fy = savgol_filter(fy, k, 2)
-            except Exception:
-                pass
+            fx = savgol_filter(fx, k, 2)
+            fy = savgol_filter(fy, k, 2)
         smoothed_coords[tid] = {int(f): (float(x), float(y)) for f, x, y in zip(frames_, fx, fy)}
 
     # ---- Write CSV ---- #
@@ -1644,6 +1848,11 @@ def parse_args():
                     help="Don't interactively confirm flagged possible-staff events (e.g. for "
                          "scripted/headless runs). They're left unresolved in "
                          "possible_staff_review.csv for manual follow-up instead.")
+    p.add_argument("--max-review-events", type=int, default=None,
+                    help="Cap how many possible-staff events are shown interactively (e.g. to "
+                         "keep a time-boxed live demo moving). Any beyond this many are left "
+                         "as 'needs manual review' in possible_staff_review.csv without a "
+                         "popup. Omit for no cap.")
     p.add_argument("--min-walk-speed", type=float, default=6.0,
                     help="Minimum average centroid speed (px/frame) for a color-matching track "
                          "to count as staff. Restricts detections to confirmed walking events "
