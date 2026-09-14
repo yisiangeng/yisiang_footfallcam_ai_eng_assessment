@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Claude Code is acting as the AI Engineer on this task (the user's own role for this take-home).
 Work in that capacity: own the technical design end-to-end, push back on plan details that
-conflict with evidence already gathered (see `KNOWLEDGE.md` / `LOG.md`), not just
+conflict with evidence already gathered (see `KNOWLEDGE.md` / `dev_notes/LOG.md`), not just
 implement whatever is drafted.
 
 ## Project
@@ -28,7 +28,7 @@ installed (the latter pulled in by an unrelated package, `easyocr`), and they co
 shared `cv2` namespace — GUI functions like `cv2.namedWindow` silently resolve to the headless
 build's stub and raise `cv2.error: ... The function is not implemented` even though a
 GUI-capable `opencv-python` is also installed. `.venv` has a clean, GUI-capable `opencv-python`
-only, with no such conflict — confirmed working (`cv2.namedWindow` succeeds). See `LOG.md`,
+only, with no such conflict — confirmed working (`cv2.namedWindow` succeeds). See `dev_notes/LOG.md`,
 "Round 2" for how this was diagnosed. Set up via:
 ```bash
 python -m venv .venv
@@ -37,13 +37,13 @@ python -m venv .venv
 (`lap` is `ultralytics`' Hungarian-matching dependency for ByteTrack. It auto-installs itself
 on first `.track()` call if missing, but that install doesn't take effect until the *next*
 process start — the run that triggers the auto-install silently gets no track IDs at all. Install
-it up front to avoid a wasted multi-minute run; see `LOG.md`, "Round 2" for how this was found.)
+it up front to avoid a wasted multi-minute run; see `dev_notes/LOG.md`, "Round 2" for how this was found.)
 
 ## Commands
 
 Current pipeline (round 2). Guided mode — no flags, asks which video and output folder
 interactively, then walks through picking the staff reference on-screen step by step (this is
-the intended live-demo flow for an unseen test video, see `SOLUTION_PLAN.md` 2.8):
+the intended live-demo flow for an unseen test video, see `dev_notes/SOLUTION_PLAN.md` 2.8):
 
 ```bash
 .venv/Scripts/python.exe src/staff_id.py
@@ -66,7 +66,7 @@ Key flags (see `python src/staff_id.py --help`):
   only counts as staff if it's also moving fast/far enough to be a genuine walking event, not
   a seated/stationary match — see "Walking-motion gate" below.
 - `--use-clip`: blend in CLIP cosine similarity (15% weight). Off by default — measured
-  anti-correlated with the true match on this footage (see `LOG.md`, "Round 2"); kept as an
+  anti-correlated with the true match on this footage (see `dev_notes/LOG.md`, "Round 2"); kept as an
   opt-in experiment, not because it's expected to help.
 - `--skip-review`: don't pop up the Y/N/S confirmation window for flagged possible-staff
   events (see "Possible-staff flagging" below) — leaves them unresolved in
@@ -104,7 +104,7 @@ Dependencies: `opencv-python`, `numpy`, `torch`, `ultralytics` (YOLOv8-seg + Byt
 `--use-clip` is passed.
 
 Round 1 (an earlier motion-detection-based pipeline) was deleted once this pipeline fully
-superseded it — see `LOG.md`, "Testing 1" for the complete history of what it did, why it was
+superseded it — see `dev_notes/LOG.md`, "Testing 1" for the complete history of what it did, why it was
 built that way, and why it was replaced. Nothing there is needed to run or understand the
 current pipeline; it's kept purely as narrative history.
 
@@ -134,7 +134,7 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    person actually walking through the open corridor was the one context round 1 visually
    confirmed as unambiguous.
 4. **Fragment bridging + gap interpolation (`bridge_track_fragments()`,
-   `interpolate_staff_gaps()`):** measured directly on `sample.mp4` (see `LOG.md`, "Round 2"
+   `interpolate_staff_gaps()`):** measured directly on `sample.mp4` (see `dev_notes/LOG.md`, "Round 2"
    evaluation entry) — tracking fragmentation, not the appearance-matching ceiling, turned out
    to be the *main* cause of missed frames: ByteTrack keeps losing and re-acquiring a walking
    person, splitting one continuous walk into short track fragments, some too brief to
@@ -164,7 +164,7 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    simultaneously active) — sending it through the same subjective Y/N/S review as a genuine
    clothing-change case would flood the reviewer with settled questions for no benefit (found
    directly in testing: routing these into review produced 15 popups in one run, most of them
-   not real ambiguity — see `LOG.md`, "Round 2").
+   not real ambiguity — see `dev_notes/LOG.md`, "Round 2").
 6. **Possible-staff flagging + interactive confirmation (`find_possible_staff_events()`,
    `split_event_by_color_outliers()`, `confirm_event_interactive()`):** a walking track whose
    color *doesn't* match the reference could genuinely be someone else, or it could be the
@@ -187,7 +187,7 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    checks whether they're far apart in space while coexisting (direct proof of two people) —
    an earlier version divided by a forced denominator of 1 in that case, which misfired on
    ordinary tracker handoffs of the *same* person and fragmented one continuous walk into six
-   separate reviews in one real run (see `LOG.md`, "Round 2"). What's left gets shown to the
+   separate reviews in one real run (see `dev_notes/LOG.md`, "Round 2"). What's left gets shown to the
    user one at a time — a large popup (window explicitly resized to match its content; a live
    test found the default noticeably too small to read comfortably) with two generously padded,
    highlighted context crops (start and end of the fragment, the actual person outlined in
@@ -200,12 +200,12 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    tight torso-only crop with no explanation led the user to press `Y` on a case the
    position-jump split had *already* correctly flagged, because the crop was too tight to judge
    identity and they fell back to clothing color — precisely the confounded signal in that case
-   (see `LOG.md`, "Round 2").
+   (see `dev_notes/LOG.md`, "Round 2").
    **Why not fully automate this decision:** tested and rejected — on real data from this
    video, a flagged event has turned out to be a genuinely different person, so auto-promoting
    would silently mislabel someone. The cost of a wrong silent auto-label (an incorrect record
    in a system tracking who's staff) outweighs the cost of a human glancing at a photo for a
-   few seconds. See `LOG.md`, "Round 2" for the full validation story on `sample.mp4`
+   few seconds. See `dev_notes/LOG.md`, "Round 2" for the full validation story on `sample.mp4`
    (correctly isolated a real clothing-change event with zero false positives among 60+ other
    tracked people in one test; correctly left a genuinely-different-person event for the user
    to reject in another; caught a real tracker ID-switch during brief physical contact between
@@ -229,26 +229,33 @@ No test suite or build step — this is a single evaluation script, run directly
   once the original round-1 `staff_id.py` was deleted — no more "v1 vs v2" to disambiguate.)
 - `yolov8n-seg.pt` — YOLOv8-seg weights used by the pipeline (auto-downloaded by `ultralytics`
   on first run if missing; present in the repo root so it also works offline).
-- `debug_archive/round1_crops/` — the stray debug crop images this folder held were later
-  deleted (the folder itself remains, empty); `LOG.md`'s "Testing 1" entry still references
-  them by name as narrative history, but the actual image files no longer exist in the repo.
 - `AI Evaluation Test.pdf`, `sample.mp4` — original task brief and input video, unmodified.
 - `KNOWLEDGE.md` — current-state reference: task requirements, why the pipeline is built the
   way it is, known limitations. Rewritten as understanding changes, not a chronological log.
-- `LOG.md` — append-only chronological log of work done, in order, including the full "Testing
-  1" history (superseded `TESTING1_NOTES.md`, which no longer exists). Add new entries here as
-  work happens rather than starting another notes file.
-- `SOLUTION_PLAN.md` — the active design doc for the current (round 2) approach.
 - `DOCUMENTATION_FINAL.md` / `.docx` — the actual 1-2 page deliverable write-up (condensed:
   only the most impactful assumptions/challenges/limitations are kept). This is what to hand
   to a reviewer.
-- `DOCUMENTATION_FULL.md` — the unabridged version of the same write-up, with every
-  assumption/challenge/limitation kept in; personal-reference only, not the deliverable.
-- `DOCUMENTATION_INSTRUCTION.md` — the outline/brief `DOCUMENTATION_FINAL.md` was written
-  against, plus a log of deliberate deviations from it.
-- `pipeline_diagram.png` — standalone copy of the pipeline diagram embedded in both
-  documentation files (source: `_doc_assets/`, generated by a matplotlib script, not checked
-  into the repo as a build script since it's a one-off documentation tool, not part of the
-  pipeline).
+- `pipeline_diagram.png` — the pipeline diagram embedded in the documentation, generated by a
+  one-off matplotlib script not checked into the repo (a documentation tool, not part of the
+  pipeline itself).
+- `demo_visuals/` — extra visuals for the interview/demo: `staff_trajectory.png` (the staff
+  member's (x, y) path over time) and `staff_highlight_clip.mp4` (a trimmed `annotated.mp4`
+  keeping only the frames where staff is present). Built from one specific past run's
+  `output/`, not regenerated automatically by the pipeline.
 - `README.md` — the repo's front door: project intro, setup, and usage instructions for
   someone landing on the repo without prior context.
+- `dev_notes/` — everything below is personal working history, not required interviewer
+  reading (moved out of the root to keep it uncluttered for a reviewer); nothing in it is the
+  deliverable, but nothing in it should be treated as disposable either:
+  - `dev_notes/LOG.md` — append-only chronological log of work done, in order, including the full
+    "Testing 1" history (superseded `TESTING1_NOTES.md`, which no longer exists). Add new
+    entries here as work happens rather than starting another notes file.
+  - `dev_notes/SOLUTION_PLAN.md` — the active design doc for the current (round 2) approach.
+  - `DOCUMENTATION_FULL.md` — the unabridged version of the deliverable write-up, with every
+    assumption/challenge/limitation kept in; personal-reference only, not the deliverable.
+  - `DOCUMENTATION_INSTRUCTION.md` — the outline/brief `DOCUMENTATION_FINAL.md` was written
+    against, plus a log of deliberate deviations from it.
+  - `debug_archive/round1_crops/` — the stray debug crop images this folder held were later
+    deleted (the folder itself remains, empty); `dev_notes/LOG.md`'s "Testing 1" entry still
+    references them by name as narrative history, but the actual image files no longer exist
+    in the repo.

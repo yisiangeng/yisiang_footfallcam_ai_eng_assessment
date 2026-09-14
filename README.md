@@ -46,10 +46,11 @@ See `pipeline_diagram.png` for the full step-by-step diagram.
 | `yolov8n-seg.pt` | Pretrained detection weights (bundled so it also works offline) |
 | `requirements.txt` | Python dependencies |
 | `DOCUMENTATION_FINAL.md` | **Start here** — the short write-up: assumptions, methodology, results, and how to use it (a `.docx`/PDF copy can be generated from this on request) |
-| `DOCUMENTATION_FULL.md` | The unabridged version of the same write-up, with every assumption/challenge/limitation kept in, for anyone who wants the full detail |
 | `pipeline_diagram.png` | Standalone copy of the pipeline diagram |
-| `KNOWLEDGE.md`, `LOG.md`, `SOLUTION_PLAN.md` | Internal engineering notes — design reasoning, a chronological build log, and the original planning doc. Not required reading; kept for anyone curious how the pipeline reached its current form |
+| `demo_visuals/` | Extra visuals for a live demo: the staff member's (x, y) trajectory plotted over time, and a short highlight clip trimmed to just the frames they're present in |
+| `KNOWLEDGE.md` | Design reasoning: why the pipeline is built the way it is, and its known limitations. Not required reading, but the most useful of the internal notes if you only read one |
 | `AI Evaluation Test.pdf` | The original task brief |
+| `dev_notes/` | Personal working history (chronological build log, the original planning doc, the unabridged documentation draft, this document's own outline/brief, and archived debug images from an earlier discarded approach). Not required reading — kept for the author's own record, not for a reviewer |
 
 ## Setup
 
@@ -108,4 +109,5 @@ ambiguous unresolved in `possible_staff_review.csv` instead). Run
 
 - **`DOCUMENTATION_FINAL.md`** — assumptions, methodology, evaluation results,
   and known limitations, condensed to the essentials.
-- **`DOCUMENTATION_FULL.md`** — the same document, unabridged.
+- **`dev_notes/DOCUMENTATION_FULL.md`** — the same document, unabridged, kept
+  for personal reference rather than as part of the deliverable.

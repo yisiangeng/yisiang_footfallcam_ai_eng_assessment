@@ -766,3 +766,41 @@ was still fully unchecked despite three of its four items being done. Also found
 some point after generation, cause unconfirmed) even though `README.md` references a `.docx`
 alongside the `.md`, and `_doc_assets/DOCUMENTATION.html` was a stale intermediate left over from
 the pre-split single-document PDF build, no longer corresponding to any current source file.
+
+### Demo visuals for the interview, and a real color-coding bug found along the way
+
+User asked what visualization aids the brief allows (answer: the brief only says "use
+illustration or visualization aids when possible" -- no specific tool is named) and, after a
+rundown of what already exists (`annotated.mp4`, `reference_crop.jpg`, `review_event_*.jpg`,
+`pipeline_diagram.png`), asked for two more: a plot of the staff member's (x, y) trajectory over
+time, and a short highlight clip instead of the full-length `annotated.mp4`. Both built from the
+most recent real run's `output/` data (not a fresh pipeline run) into a new `demo_visuals/`
+folder:
+
+- `staff_trajectory.png` -- a matplotlib scatter+line plot of every `staff_present=True` (x, y)
+  point from `staff_detections.csv`, colored by timestamp. The connecting line is deliberately
+  broken (`np.nan` gaps) wherever consecutive present-frames are more than ~1.2s apart, since a
+  straight line across a real absence gap (e.g. the ~10s the person was off-screen/not-staff
+  between two of the walking windows) would visually imply continuous movement that never
+  happened -- caught by reasoning about what the line actually represents before shipping it,
+  not from a visibly-wrong render.
+- `staff_highlight_clip.mp4` -- reads `output/annotated.mp4` directly (`cv2.VideoCapture`, no
+  re-detection), keeps only the contiguous windows where the person was present (+-0.5s padding
+  for context), and writes just those out (17.8s from the original 53.6s). First version had a
+  real bug: padding two nearby windows independently made them overlap, so the frames in the
+  overlap got written to the output twice (would show as a visible stutter/repeat on playback) --
+  caught before viewing the clip, by printing and inspecting the computed frame ranges, and fixed
+  by merging any windows that overlap or touch after padding, before writing.
+
+**Separately, while spot-checking a frame from the new highlight clip, found a real, previously
+undocumented bug in `src/staff_id.py`'s own rendering code**: the "everyone else" (non-staff,
+non-flagged) box color was `(200, 130, 0)` in OpenCV's BGR order, which actually renders as
+RGB `(0, 130, 200)` -- a medium blue -- not the orange that `CLAUDE.md` has always documented
+("green=staff, yellow=still needs review, orange=other"). Confirmed directly by extracting and
+viewing a frame from the highlight clip (a person at a desk, correctly categorized as "other,"
+boxed in visibly blue, not orange) and by converting the BGR tuple to RGB by hand. Fixed to
+`(0, 140, 255)` BGR (= RGB `(255, 140, 0)`, true orange). This is a purely cosmetic bug (never
+affected which tracks counted as staff, any score, or any number in "Evaluation") but a real one
+-- worth knowing about since `output/annotated.mp4` and the `staff_highlight_clip.mp4` built from
+it still show the old (blue) color, having been rendered before this fix; a fresh pipeline run
+would be needed to see the corrected orange in the annotated video itself.

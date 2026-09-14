@@ -468,10 +468,7 @@ def select_reference_interactive(video_path):
     print()
     print("  Tip: if their clothing changes partway through the video (e.g. a jacket goes")
     print("  on/off), pick whichever frame shows the most distinctive, least generic color")
-    print("  (a bright/unusual color beats black/gray/navy) -- confirmed directly on this")
-    print("  project's own test video: picking a plain dark outfit as the reference made ")
-    print("  several unrelated people score HIGHER than the real staff's own other outfit,")
-    print("  simply because dark clothing is common. See KNOWLEDGE.md, 'Assumptions' #7.")
+    print("  (a bright/unusual color beats black/gray/navy).")
     print()
 
     win = "STEP 3a: Scrub to the staff member, then press ENTER"
@@ -1418,7 +1415,7 @@ def run(args):
             elif tid in flagged_tracks:
                 color, label = (0, 210, 255), f"REVIEW? #{tid} {det['score']:.2f}"
             else:
-                color, label = (200, 130, 0), f"#{tid} {det['score']:.2f}"
+                color, label = (0, 140, 255), f"#{tid} {det['score']:.2f}"
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, label, (x1, max(0, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
         if not drew_staff and frame_idx in interpolated_coords:

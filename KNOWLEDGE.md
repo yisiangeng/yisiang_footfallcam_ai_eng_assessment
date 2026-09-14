@@ -4,7 +4,7 @@ Working notes for this project: task requirements, assumptions, and the reasonin
 the current approach. CLAUDE.md is the short operational summary; this file is the longer
 record of *why* things are built the way they are, kept up to date as the solution evolves.
 For the full chronological history (including an earlier, now-deleted pipeline this one
-replaced), see `LOG.md` — this file only describes the current state, not how it got here.
+replaced), see `dev_notes/LOG.md` — this file only describes the current state, not how it got here.
 
 ## Task (from `AI Evaluation Test.pdf`)
 
@@ -45,7 +45,7 @@ data constraint, not a design preference — worth stating plainly if asked in t
   edges, an open corridor down the middle where people walk through.
 - Because it's fisheye + directly overhead, people are heavily foreshortened and don't look
   like the eye-level pedestrians most public detectors/embeddings are trained on — this
-  domain shift has been the recurring theme of this whole project (see `LOG.md`).
+  domain shift has been the recurring theme of this whole project (see `dev_notes/LOG.md`).
 - More than one person in this office wears similarly light-colored clothing, and the
   tagged person's own clothing changes partway through (shirt, then a jacket over it) —
   color alone cannot fully disambiguate every case; see "Known limitations."
@@ -65,7 +65,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
 2. **Exactly one person is genuinely staff at any given moment.** Stated directly in the task
    brief (other people are explicitly untagged) and now mechanically enforced —
    `resolve_simultaneous_staff_conflicts()` keeps only the single highest-scoring track when
-   two auto-qualify simultaneously (see "Current approach" and `LOG.md`, "Round 2"). Only
+   two auto-qualify simultaneously (see "Current approach" and `dev_notes/LOG.md`, "Round 2"). Only
    catches the *simultaneous* case, though — a similarly-dressed person walking through alone
    at a different time, scoring above threshold, would still slip through uncaught. See "Known
    limitations."
@@ -86,7 +86,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
    fragment's position or color diverges sharply from its neighbors
    (`split_event_by_position_jump()`, `split_event_by_color_outliers()`). A quiet,
    slow, same-colored ID-switch with no detectable jump would go uncaught — the one real
-   ID-switch found and fixed (see `LOG.md`, "Round 2") happened to produce both a color-ceiling
+   ID-switch found and fixed (see `dev_notes/LOG.md`, "Round 2") happened to produce both a color-ceiling
    *and* a sharp position jump, which is what made it catchable at all.
 6. **A short, spatially-close gap between two sightings means the same person continuing, not
    a different one** ("the person doesn't teleport" — `bridge_track_fragments()`,
@@ -126,7 +126,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
   everyone including partial/foreshortened poses) + ByteTrack (Kalman + Hungarian matching,
   via `ultralytics`' built-in tracker), in one pass. Re-validated directly on this footage
   after an earlier attempt (wrongly) ruled YOLO out based on a single unlucky frame — see
-  `LOG.md`, "Round 2." Detection confidence never decides who's staff; appearance matching
+  `dev_notes/LOG.md`, "Round 2." Detection confidence never decides who's staff; appearance matching
   does, on every detected person.
 - **ROI extraction is mask-aware:** each box's non-mask pixels are replaced with a neutral
   gray before any color is read, so a loose box that happens to include desk/floor doesn't
@@ -150,7 +150,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
   rejected: on this exact video, a flagged case turned out to be a genuinely different
   person, so auto-labeling would have silently mislabeled someone), the pipeline pops up each
   ambiguous case for a one-keypress Y/N/S confirmation right in the same run. This is a
-  deliberate "reject option" design choice, not a gap — see `LOG.md` for the reasoning and the
+  deliberate "reject option" design choice, not a gap — see `dev_notes/LOG.md` for the reasoning and the
   real validation results (correctly caught a real clothing-change event; correctly left a
   genuinely-different-person event for the user to reject).
 - **Short/marginal track fragments next to a confirmed staff sighting are bridged in
@@ -173,7 +173,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
   what else was happening at the same moment. Added after a live run showed a sustained ~8s
   false positive (median score 0.55, a different similarly-clothed person) running green
   "STAFF" at the same time as the genuine staff (median score 0.92) in the same frames — see
-  "Known limitations" and the "simultaneous-staff conflict" entry in `LOG.md` for the full
+  "Known limitations" and the "simultaneous-staff conflict" entry in `dev_notes/LOG.md` for the full
   story. **The loser is auto-rejected and logged to `auto_rejected_conflicts.csv`, not sent
   through the possible-staff review** — a simultaneous higher-scoring track is strong,
   objective evidence, unlike the subjective color/motion ambiguity the review is for, and
@@ -187,7 +187,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
   earlier version divided by a forced denominator of 1 whenever fragments overlapped, which
   misfired on ordinary tracker handoffs of the *same* person — found directly in testing when it
   fragmented one continuous walk into six separate reviews. See "Known limitations" and
-  `LOG.md`, "Round 2."
+  `dev_notes/LOG.md`, "Round 2."
 
 ## Calibration reference points (`sample.mp4`)
 
@@ -372,26 +372,26 @@ tracking fragmentation, not the appearance-matching logic itself.
 
 Since then: fragment-bridging/gap-interpolation, simultaneous-staff conflict resolution,
 position-jump event splitting, a redesigned/enlarged review popup, and a reference-crop-choice
-tip were all added and individually verified (see `LOG.md`, "Round 2" — several entries). User
+tip were all added and individually verified (see `dev_notes/LOG.md`, "Round 2" — several entries). User
 confirmed directly, after re-testing live, that the current version is the best-performing one
 so far.
 
 ## Deliverables still needed
 
 - [x] 1-2 page write-up — done: `DOCUMENTATION_FINAL.md` / `.docx` (the condensed deliverable)
-      plus `DOCUMENTATION_FULL.md` (unabridged personal-reference copy); drew on the
+      plus `dev_notes/DOCUMENTATION_FULL.md` (unabridged personal-reference copy); drew on the
       "Evaluation" numbers above
-- [x] Precision/recall/F1 evaluation against labeled frames (`SOLUTION_PLAN.md` 2.6) — done,
+- [x] Precision/recall/F1 evaluation against labeled frames (`dev_notes/SOLUTION_PLAN.md` 2.6) — done,
       see "Evaluation" above; ground truth from the user watching `sample.mp4` directly
 - [ ] Test against a second video (only ever tested against `sample.mp4` so far)
 - [x] Visual verification of the Savitzky-Golay coordinate smoothing's effect on jitter — done,
-      see `LOG.md`; effect is real but subtle (removes small single-frame wiggles, no visible
+      see `dev_notes/LOG.md`; effect is real but subtle (removes small single-frame wiggles, no visible
       lag/overshoot), given the fixed ~5-frame smoothing window the current code always uses
 - [x] Implement a fix for tracking fragmentation (gap-bridging/interpolation) and for the
       tracker ID-switch (per-fragment position/color discontinuity splitting) — done, see
       "Known limitations" for what each fix actually achieved (fragmentation: partial,
       measured modest gain; ID-switch: verified fix for the one real case found, still
-      narrow — see the "genuinely narrow fix" note there) and `LOG.md` for the implementation
+      narrow — see the "genuinely narrow fix" note there) and `dev_notes/LOG.md` for the implementation
       and validation story
 - [x] Re-measure precision/recall/F1 with both fixes enabled end-to-end (interactively
       confirming the review events, not `--skip-review`) — done, see "Evaluation," "Re-measured
