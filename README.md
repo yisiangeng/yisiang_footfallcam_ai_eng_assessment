@@ -83,17 +83,45 @@ For a first-time or live-demo run — no command-line flags needed:
 6. If it spots someone it isn't fully sure about (e.g. after an outfit change),
    a photo pops up asking *"Is this the staff member? (Y/N/Skip)"* — answer
    with one keypress.
-7. Open the `output/` folder when it's done:
-   - `annotated.mp4` — the video with the staff member boxed in green, for a
-     quick visual check
-   - `staff_highlight_clip.mp4` — a much shorter clip, trimmed to just the
-     parts where staff is present, for a faster demo
-   - `staff_trajectory.png` — a plot of the staff member's on-screen path
-     over the course of the video
-   - `staff_detections.csv` — the frame-by-frame (x, y) location table
-   - `possible_staff_review.csv` + `auto_rejected_conflicts.csv` — only
-     created if something needed review; an audit trail of what was flagged
-     and how it was resolved
+7. Open the `output/` folder when it's done — see **Output folder** below for
+   what's in it.
+
+## Output folder
+
+Everything lands in `--output-dir` (`output/` by default):
+
+| File | What it is |
+|---|---|
+| `staff_detections.csv` | Frame-by-frame (x, y) location table — the main bonus-task output |
+| `annotated.mp4` | Full video, staff boxed green, ambiguous events yellow, everyone else orange |
+| `staff_highlight_clip.mp4` | Same as above, trimmed to just the windows where staff is present — for a quick demo |
+| `staff_trajectory.png` | Plot of the staff member's (x, y) path over time |
+| `reference_crop.jpg` | The reference photo actually used to match against |
+| `possible_staff_review.csv` + `review_event_*.jpg` | Only created if something was flagged as ambiguous (e.g. an outfit change) — audit trail of what was reviewed and the outcome |
+| `auto_rejected_conflicts.csv` | Only created if two tracks looked like staff at the same time — audit trail of which one was auto-rejected and why |
+
+**`staff_detections.csv` columns:**
+- `frame` / `timestamp_s` — which frame, and its time in seconds
+- `staff_present` — True/False, was staff detected in this frame
+- `track_id` — the tracker's ID for that detection (blank if `interpolated`)
+- `x`, `y` — the person's on-screen position (footpoint)
+- `match_score` — how closely their clothing matched the reference (blank if `interpolated`)
+- `interpolated` — True if this row is a gap-fill estimate (no real detection that frame), not an actual observation
+
+**`possible_staff_review.csv` columns:**
+- `event` — ID for one flagged occurrence (a group of nearby track fragments)
+- `start_frame`/`end_frame`, `start_time_s`/`end_time_s` — when it happened
+- `n_track_fragments` — how many separate tracker IDs were merged into this event
+- `representative_crop` — filename of the photo shown during review
+- `resolution` — `confirmed STAFF` / `confirmed not staff` / `needs manual review`
+- `color_outlier` — True if flagged because part of the event's clothing color diverged from the rest (possibly a different person mid-event)
+- `position_jump` — True if flagged because of an implausible position jump partway through (possibly a tracker ID-switch)
+
+**`auto_rejected_conflicts.csv` columns:**
+- `track_id` — the track that was auto-rejected
+- `start_frame`/`end_frame`, `start_time_s`/`end_time_s` — when it happened
+- `median_score` — its own color-match score
+- `conflicts_with_track_id` / `conflicts_with_median_score` — the higher-scoring track it lost to, and that track's score
 
 ## Repeatable / scripted runs
 

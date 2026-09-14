@@ -64,7 +64,7 @@ Key flags (see `python src/staff_id.py --help`):
   score, speed, range for every track) against a new video before trusting the default.
 - `--min-walk-speed` / `--min-walk-range` (default 6px/frame, 40px): a color-qualifying track
   only counts as staff if it's also moving fast/far enough to be a genuine walking event, not
-  a seated/stationary match — see "Walking-motion gate" below.
+  a seated/stationary match — see "Motion-based track filter" below.
 - `--use-clip`: blend in CLIP cosine similarity (15% weight). Off by default — measured
   anti-correlated with the true match on this footage (see `dev_notes/LOG.md`, "Round 2"); kept as an
   opt-in experiment, not because it's expected to help.
@@ -137,8 +137,9 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
      but off by default (see "Commands").
 3. **Track-level decision:** a track counts as staff only if (a) it has enough frames to not be
    flicker, (b) its median score clears `--staff-threshold`, and (c) it passes the
-   **walking-motion gate** — average centroid speed and positional range, computed from the
-   track's own coordinates, high enough to be a genuine walking event rather than a
+   **motion-based track filter (velocity + displacement thresholding)** — average centroid
+   speed and positional range, computed from the track's own coordinates, high enough to be
+   a genuine walking event rather than a
    seated/stationary match. This last check exists because YOLO (unlike round 1's motion-only
    detector) also matches seated people, and this office has more than one person in similarly
    light-colored clothing — color alone can't disambiguate two people at the same desk, but a
@@ -149,7 +150,7 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    evaluation entry) — tracking fragmentation, not the appearance-matching ceiling, turned out
    to be the *main* cause of missed frames: ByteTrack keeps losing and re-acquiring a walking
    person, splitting one continuous walk into short track fragments, some too brief to
-   individually clear `--min-track-seconds`/the walking-motion gate, some with zero detection
+   individually clear `--min-track-seconds`/the motion-based track filter, some with zero detection
    at all for a few frames. Both functions apply the same "the person doesn't teleport" logic
    (`BRIDGE_MAX_GAP_SECONDS`/`BRIDGE_MAX_JUMP_PX`): `bridge_track_fragments()` pulls a
    short/marginal fragment into the staff result if it's within that gap+jump of an

@@ -46,7 +46,7 @@ flowchart TD
 - **YOLOv8-seg (COCO-pretrained)** — detects + segments every person; masks let non-person pixels (desk, floor) be blanked before color is measured, fixing the biggest early source of false positives.
 - **ByteTrack** — links detections into per-person tracks, replacing a naive centroid tracker whose IDs swapped when people crossed paths.
 - **CIE-Lab color distance** — the primary identity signal; classical, not learned. Cleanly separates the true match (~20-30 distance) from everyone else (~60-100+).
-- **Walking-motion gate** — a color match only counts if the track's own speed/range also indicates real walking, not a seated match.
+- **Motion-based track filter (velocity + displacement thresholding)** — a color match only counts if the track's own speed/range also indicates real walking, not a seated match.
 - **Human-in-the-loop review** — an unclear walking track (e.g. after an outfit change) is shown to a person as a Yes/No/Skip prompt instead of auto-labeled (deliberate — see §6).
 
 **Models tried and rejected:**

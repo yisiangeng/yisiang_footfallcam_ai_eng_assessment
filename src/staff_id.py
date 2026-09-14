@@ -39,6 +39,15 @@ PERSON_CLASS = 0
 NEUTRAL_BG = (128, 128, 128)
 VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".m4v")
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+
+# Pass-2 annotated-video box colors (BGR, since that's what cv2 draws in). Named here rather
+# than left as inline tuples in the render loop, so the legend printed at the end of a run
+# ("green=staff, yellow=still needs review, orange=other") is easy to check against the actual
+# values -- a real bug was once caused by an inline BGR tuple that was accidentally the RGB
+# order instead (see dev_notes/LOG.md, "Round 2"), which a named constant makes harder to repeat.
+STAFF_BOX_COLOR = (0, 200, 0)       # green
+REVIEW_BOX_COLOR = (0, 210, 255)    # yellow
+OTHER_BOX_COLOR = (0, 140, 255)     # orange
 LAB_DIST_SCALE = 80.0
 # Lab color distance is the primary signal, not CLIP. Measured on this footage (see dev_notes/LOG.md,
 # "Round 2"): CLIP similarity was *anti-correlated* with the true match (true-match tracks
@@ -598,7 +607,7 @@ BRIDGE_COLOR_FLOOR = 0.3        # gap -- see bridge_track_fragments() / interpol
 # plain-shirt period, where color-matching works cleanly, frame-level recall was only ~31%
 # because ByteTrack keeps losing and re-acquiring the walking person, splitting one continuous
 # walk into many short track fragments -- some too brief to individually clear
-# --min-track-seconds or the walking-motion gate, some with zero detection at all for a few
+# --min-track-seconds or the motion-based track filter, some with zero detection at all for a few
 # frames. The person doesn't teleport, so a short, spatially-plausible gap next to an
 # already-confirmed staff sighting is almost certainly the same walk continuing.
 
@@ -1082,6 +1091,15 @@ def compute_highlight_windows(present_frames, fps, n_frames):
 # Pipeline
 # --------------------------------------------------------------------------- #
 def build_reference(video_path, ref_frame, ref_box, seg_model, clip_matcher):
+    """Get the one reference crop everything else is matched against (interactively, if
+    ref_frame/ref_box aren't given), then segment that same crop with `seg_model` so the
+    reference embedding is mask-restricted too -- apples-to-apples with the candidate crops
+    scored later, which go through the same masking (see masked_crop()).
+
+    Returns (ref_frame_idx, ref_box, ref_crop, ref_embed, ref_lab): the frame/box actually
+    used (echoed back so a scripted run can be reproduced later with --ref-frame/--ref-box),
+    the mask-restricted crop image, its CLIP embedding (None unless clip_matcher is given),
+    and its mean Lab color."""
     if ref_frame is None or ref_box is None:
         ref_frame, ref_box, frame = select_reference_interactive(video_path)
     else:
@@ -1118,6 +1136,28 @@ def build_reference(video_path, ref_frame, ref_box, seg_model, clip_matcher):
 
 
 def run(args):
+    """The whole pipeline, start to finish, for one video. Long, but stays in one function
+    since each stage depends on state built up by the previous one (per-frame detections,
+    track-level scores/coords, the staff/not-staff decision) -- see the "---- Section ----"
+    comments below for where each stage starts. In order:
+
+      1. Load the video + models, build the staff reference (build_reference()).
+      2. Pass 1 (single YOLO+ByteTrack pass): detect, track, and score every person in every
+         frame against the reference; cache per-frame detections for Pass 2's render.
+      3. Track-level staff decision: color threshold + motion-based track filter (see
+         CLAUDE.md, "Architecture" step 3), then fragment bridging, simultaneous-conflict
+         resolution, and gap interpolation (bridge_track_fragments(),
+         resolve_simultaneous_staff_conflicts(), interpolate_staff_gaps()).
+      4. Possible-staff flagging + interactive Y/N/S review for anything still ambiguous
+         (find_possible_staff_events(), confirm_event_interactive()).
+      5. Smooth staff coordinates (Savitzky-Golay) and write staff_detections.csv.
+      6. staff_trajectory.png (render_staff_trajectory()) and the highlight-clip windows
+         (compute_highlight_windows()).
+      7. Pass 2: re-read the video (no re-detection) to draw annotated.mp4 and, in the same
+         pass, staff_highlight_clip.mp4.
+
+    Writes everything to args.output_dir and prints a running commentary + final summary;
+    doesn't return anything."""
     if args.video is None:
         video, out_name = guided_setup()
         args.video = video
@@ -1429,6 +1469,10 @@ def run(args):
         fx = np.array([e[3] for e in entries], dtype=np.float64)
         fy = np.array([e[4] for e in entries], dtype=np.float64)
         if len(entries) >= 5:
+            # Savitzky-Golay needs an odd window no larger than the number of points. This
+            # clamp always resolves to 5 under the `>= 5` guard just above (verified for
+            # every len(entries) from 5 up) -- written this way, rather than a bare `k = 5`,
+            # so it stays correct on its own if that guard threshold is ever changed.
             k = min(5, len(entries) - (1 - len(entries) % 2))
             k = k if k % 2 == 1 else k - 1
             k = max(k, 3)
@@ -1508,22 +1552,22 @@ def run(args):
             tid = det["track_id"]
             x1, y1, x2, y2 = (int(v) for v in det["box"])
             if tid in staff_tracks:
-                color, label = (0, 200, 0), f"STAFF #{tid} {det['score']:.2f}"
+                color, label = STAFF_BOX_COLOR, f"STAFF #{tid} {det['score']:.2f}"
                 drew_staff = True
             elif tid in flagged_tracks:
-                color, label = (0, 210, 255), f"REVIEW? #{tid} {det['score']:.2f}"
+                color, label = REVIEW_BOX_COLOR, f"REVIEW? #{tid} {det['score']:.2f}"
             else:
-                color, label = (0, 140, 255), f"#{tid} {det['score']:.2f}"
+                color, label = OTHER_BOX_COLOR, f"#{tid} {det['score']:.2f}"
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, label, (x1, max(0, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
         if not drew_staff and frame_idx in interpolated_coords:
             # No detection at all this frame -- draw the gap-filled position as a marker
             # (a point, not a box: there's no detected box to draw here) instead of a rectangle.
             ix, iy = interpolated_coords[frame_idx]
-            cv2.circle(frame, (int(ix), int(iy)), 7, (0, 200, 0), -1, cv2.LINE_AA)
+            cv2.circle(frame, (int(ix), int(iy)), 7, STAFF_BOX_COLOR, -1, cv2.LINE_AA)
             cv2.circle(frame, (int(ix), int(iy)), 9, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.putText(frame, "STAFF (interpolated)", (int(ix) + 10, int(iy) - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, STAFF_BOX_COLOR, 2, cv2.LINE_AA)
         writer_vid.write(frame)
         if writer_highlight is not None and frame_idx in highlight_frame_set:
             writer_highlight.write(frame)

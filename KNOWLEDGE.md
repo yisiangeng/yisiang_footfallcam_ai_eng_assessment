@@ -106,7 +106,7 @@ answer for in the interview. Each links to where it's discussed in more depth.
    is more confusable with random bystanders than a distinctive light color, so the shirt era is
    the safer pick for `sample.mp4` specifically — worth saying explicitly to whoever runs this
    live, not left implicit.
-8. **Static, non-panning camera.** The walking-motion gate computes speed/range directly in raw
+8. **Static, non-panning camera.** The motion-based track filter computes speed/range directly in raw
    pixel coordinates frame-to-frame; a panning/zooming camera would need motion computed in a
    stabilized or world coordinate frame instead.
 9. **The unseen test video will have broadly similar camera geometry to `sample.mp4`**
@@ -237,7 +237,7 @@ Diffing that against one full run's `staff_detections.csv` (`output_ui_test/`, 1
   missed frames isn't the clothing-change appearance ceiling already documented below — it's
   **tracking fragmentation**: ByteTrack loses and re-acquires the person repeatedly even while
   their appearance matches fine, splitting one continuous walk into many short track-ID
-  fragments, some of which individually fail `--min-track-seconds` / the walking-motion gate
+  fragments, some of which individually fail `--min-track-seconds` / the motion-based track filter
   and so never get counted as staff at all, leaving frame-level gaps mid-walk. This was not
   previously measured and is a bigger practical limitation than the clothing-change ceiling.
 - **A tracker ID-switch was caught and confirmed by the user watching `annotated.mp4` frame
@@ -337,7 +337,7 @@ Two things worth recording about *how* this number was reached, not just the num
   confirm rather than guess — validated to work correctly on real examples from this video,
   but it is a human-in-the-loop mitigation, not a fully automatic solution.
 - **More than one person in this office wears similarly light-colored clothing.** Color alone
-  cannot disambiguate two such people if both happen to be walking — the walking-motion gate
+  cannot disambiguate two such people if both happen to be walking — the motion-based track filter
   and possible-staff flagging both exist because of this, not as a hypothetical edge case.
   **Confirmed with a real, sustained example**: a track ran green "STAFF" for ~8 seconds (201
   frames, median score 0.55 — a different person, close enough in color to clear
@@ -354,7 +354,7 @@ Two things worth recording about *how* this number was reached, not just the num
 - **No training data beyond `sample.mp4` itself** (confirmed with the user) — every model
   used is pretrained and unmodified; nothing here was fine-tuned or trained specifically for
   this task, camera angle, or this specific staff member.
-- Assumes a static, non-panning camera (true for this sensor type) — the walking-motion gate
+- Assumes a static, non-panning camera (true for this sensor type) — the motion-based track filter
   computes speed/range in raw pixel coordinates, which would need re-deriving if the camera
   could move.
 
