@@ -67,18 +67,25 @@ an internet connection to fetch it.
 
 ## Quick start
 
-For a first-time or live-demo run — still fully guided, just one recommended flag:
+For a first-time or live-demo run — both fully guided, pick one:
 
 1. Put the video you want to test into this project folder.
-2. Open a terminal here and run:
+2. Open a terminal here and run one of:
    ```bash
    .venv\Scripts\python.exe src\staff_id.py
    .venv\Scripts\python.exe src\staff_id.py --max-review-events 6
    ```
-   (`--max-review-events 6` caps how many review popups you're asked live, so the demo
-   doesn't stall on a long run of them — anything past the cap is still recorded in
-   `possible_staff_review.csv`, just not shown live. Safe to omit for the uncapped
-   behavior; see `CLAUDE.md`, "Commands" for why 5.)
+   The **first line** is the original, uncapped flow — every possible-staff event gets a live
+   review popup, however many there turn out to be. Use this when you want to show the
+   pipeline's full thoroughness (e.g. if asked how many events it actually flags), or when
+   time isn't tight.
+
+   The **second line** adds `--max-review-events 6` for a shorter, less-review version — it
+   caps how many popups you're asked live, so a video with a lot of flagged events doesn't
+   stall a time-boxed demo. Anything past the cap isn't dropped, just deferred: it's still
+   written to `possible_staff_review.csv` as `needs manual review`, so nothing is silently
+   lost, it's just not shown live. See `CLAUDE.md`, "Commands" for the reasoning behind the
+   cap and why events past it are still worth trusting.
 3. Pick the video from the list it shows you.
 4. A window pops up: scrub to a frame where the staff member is clearly visible,
    drag a box around them, and press Enter. This is the only manual step — it

@@ -952,3 +952,9 @@ invocation in `CLAUDE.md` ("Commands") and `README.md` ("Quick start"), with the
 full data written into `dev_notes/UNEXPECTED.md`'s new "Real interactive run" section. Noted a
 cleaner future option (explicit priority-sort before the cap, e.g. by descending color score)
 as a flagged-but-not-implemented follow-up, not a promise.
+
+Follow-up: user edited `README.md`'s example directly to `--max-review-events 6` (kept both the
+uncapped and capped command lines side by side, rather than replacing one with the other) and
+asked for the description to explain both; then asked to bump the recommended value in
+`CLAUDE.md`/`dev_notes/UNEXPECTED.md` from 5 to 6 too, for consistency across all three docs.
+Done in all three places.

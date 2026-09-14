@@ -49,17 +49,18 @@ live-demo invocation adds `--max-review-events` on top of the otherwise flag-les
 this one, still applies normally regardless):
 
 ```bash
-.venv/Scripts/python.exe src/staff_id.py --max-review-events 5
+.venv/Scripts/python.exe src/staff_id.py --max-review-events 6
 ```
 
-Why 5: measured directly on a real run of `sample.mp4` (17 possible-staff events: 4 from the
+Why 6: measured directly on a real run of `sample.mp4` (17 possible-staff events: 4 from the
 original unmatched-color category, 2 of which were real staff; 13 from the newer `stationary`
 category, none of which were) — see `dev_notes/UNEXPECTED.md`, risk #4 and #7. Since
-`stationary` events are always appended after the original category, a cap around 5 shows the
-historically higher-hit-rate events live and defers the rest to `possible_staff_review.csv`
-rather than spending live demo time on a category that happened to have a 0% hit rate on this
-video. Treat 5 as a starting point, not a hard rule — check the printed event count on the
-actual test video and raise it if there's time to spare. Omit the flag entirely (plain
+`stationary` events are always appended after the original category, a cap around 6 shows the
+historically higher-hit-rate events live (all 4 original ones, plus a little headroom) and
+defers the rest to `possible_staff_review.csv` rather than spending live demo time on a
+category that happened to have a 0% hit rate on this video. Treat 6 as a starting point, not a
+hard rule — check the printed event count on the actual test video and raise it if there's
+time to spare. Omit the flag entirely (plain
 `python src/staff_id.py`) for the uncapped "real" behavior — e.g. if asked how thorough the
 review step actually is, the full uncapped `possible_staff_review.csv` from a run without the
 cap is the more convincing answer than the capped one.
