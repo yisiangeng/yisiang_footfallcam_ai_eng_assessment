@@ -98,10 +98,21 @@ Outputs land in `--output-dir` (default `output/`):
   higher-scoring track it conflicted with and both their median scores. These are *not* also
   put through the interactive review — a simultaneous higher-scoring track is already strong,
   objective evidence, unlike the subjective color/motion ambiguity the review popup is for.
+- `staff_trajectory.png` — a scatter/line plot of every staff-present `(x, y)` point, colored
+  by timestamp (`render_staff_trajectory()`). The connecting line deliberately breaks across
+  any real absence gap longer than `TRAJECTORY_LINE_BREAK_SECONDS` (1.2s), so it never visually
+  implies movement during a period the person wasn't actually detected. Skipped (not written)
+  if the video has zero staff-present frames.
+- `staff_highlight_clip.mp4` — the same frames as `annotated.mp4`, but only the windows where
+  staff is actually present, each padded with `HIGHLIGHT_PAD_SECONDS` (0.5s) of context and
+  merged if that padding makes neighboring windows overlap (`compute_highlight_windows()`) —
+  a much shorter clip for a quick demo instead of scrubbing through the full-length video.
+  Written during the same Pass 2 video read as `annotated.mp4` (no extra pass over the video).
+  Skipped if there are no staff-present frames at all.
 
 Dependencies: `opencv-python`, `numpy`, `torch`, `ultralytics` (YOLOv8-seg + ByteTrack),
-`scipy` (Savitzky-Golay coordinate smoothing) required; `transformers` (CLIP) only needed if
-`--use-clip` is passed.
+`scipy` (Savitzky-Golay coordinate smoothing), `matplotlib` (`staff_trajectory.png`) required;
+`transformers` (CLIP) only needed if `--use-clip` is passed.
 
 Round 1 (an earlier motion-detection-based pipeline) was deleted once this pipeline fully
 superseded it — see `dev_notes/LOG.md`, "Testing 1" for the complete history of what it did, why it was
@@ -219,7 +230,11 @@ Single YOLO pass (no separate rendering pass needed for detection — only raw f
    staff track (bridged/interpolated frames are not re-smoothed — the interpolation is already
    linear, i.e. already smooth by construction).
 8. **Render pass:** re-reads the video (no re-detection) to draw boxes and write
-   `annotated.mp4`, using the cached per-frame detections from step 2.
+   `annotated.mp4`, using the cached per-frame detections from step 2. Also writes
+   `staff_highlight_clip.mp4` in the same pass (frames within a staff-present window get
+   written to both files, no second read of the video) and, separately (matplotlib, no video
+   read needed), `staff_trajectory.png` from the coordinates already gathered while writing
+   `staff_detections.csv`.
 
 No test suite or build step — this is a single evaluation script, run directly.
 

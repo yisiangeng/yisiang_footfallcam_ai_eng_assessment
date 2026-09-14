@@ -5,6 +5,7 @@ scipy==1.18.1
 torch==2.14.0
 ultralytics==8.4.143
 lap==0.5.13
+matplotlib==3.11.1
 
 # Optional: only needed for the --use-clip flag (off by default, see CLAUDE.md).
 # Large download (~2GB incl. torch's own CUDA wheels on some platforms) -- omit if

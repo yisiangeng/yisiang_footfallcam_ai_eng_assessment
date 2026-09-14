@@ -804,3 +804,57 @@ affected which tracks counted as staff, any score, or any number in "Evaluation"
 -- worth knowing about since `output/annotated.mp4` and the `staff_highlight_clip.mp4` built from
 it still show the old (blue) color, having been rendered before this fix; a fresh pipeline run
 would be needed to see the corrected orange in the annotated video itself.
+
+### The two demo visuals promoted into the pipeline itself, `demo_visuals/` removed
+
+User asked for `staff_trajectory.png` and `staff_highlight_clip.mp4` (built as a one-off in
+`demo_visuals/` above) to become real pipeline outputs instead -- generated automatically into
+`--output-dir` on every run, not built separately from an old run's data by hand. Implemented in
+`src/staff_id.py`:
+
+- `render_staff_trajectory()` and `compute_highlight_windows()` -- new functions, ported
+  directly from the one-off script with the same logic (line breaks across real absence gaps
+  longer than `TRAJECTORY_LINE_BREAK_SECONDS`; padded/merged presence windows via
+  `HIGHLIGHT_MERGE_GAP_SECONDS`/`HIGHLIGHT_PAD_SECONDS`) rather than reimplemented from scratch.
+- The CSV-writing loop (already computing each frame's staff-presence and (x, y) for
+  `staff_detections.csv`) now also collects `trajectory_points` and `staff_present_frames` as a
+  side effect, so no extra pass over the data is needed to build the plot/clip.
+- The highlight clip is written during the *same* Pass 2 video read that produces
+  `annotated.mp4` (a second `cv2.VideoWriter`, fed the same already-annotated frame when its
+  index falls in a highlight window) -- deliberately not a third pass over the video.
+- Both are skipped (not written, and not mentioned in the `DONE` summary) if the run found zero
+  staff-present frames at all, matching how `possible_staff_review.csv` etc. are only written
+  when relevant.
+- Added `matplotlib` to `requirements.txt` as a required dependency (previously only used by a
+  documentation build script, not by the pipeline itself) and to `CLAUDE.md`'s dependency list.
+- Verified by calling both new functions directly against the last real run's
+  `output/staff_detections.csv` (reconstructed frame list, not a fresh pipeline run) and
+  confirming the computed highlight windows and frame count matched `demo_visuals/`'s
+  already-validated output exactly (`[(352,402), (433,485), (511,572), (814,868), (899,931),
+  (979,1041), (1066,1136), (1164,1220)]`, 445 frames / 17.8s) before deleting `demo_visuals/`.
+
+**Side finding, not acted on**: while touching the dependency list, noticed `src/staff_id.py`
+imports `transformers` (`CLIPModel`, `CLIPImageProcessor`) unconditionally at the top of the
+file, even though both `CLAUDE.md` and `requirements.txt` describe it as "only needed if
+`--use-clip` is passed." This means the script currently can't even start without `transformers`
+installed, regardless of that flag -- a real, pre-existing documentation/code mismatch, distinct
+from today's task. Flagged to the user rather than fixed, since it wasn't what was asked and
+changing it (e.g. to a lazy/conditional import) is a small but separate behavior change.
+
+### Fixed the transformers-always-required bug, and a stale-reference cleanup missed earlier
+
+User asked to fix the side finding above. Moved `from transformers import CLIPModel,
+CLIPImageProcessor` out of the module top level and into `ClipMatcher.__init__()` (the only
+place either name is used, and `ClipMatcher` is only ever constructed when `args.use_clip` is
+true -- confirmed by checking every call site first, not assumed). Verified with a targeted
+test rather than trusting the change by inspection alone: set `sys.modules['transformers'] =
+None` (the standard way to simulate an uninstalled package without actually uninstalling it
+from this venv) and confirmed `import staff_id` now succeeds, while constructing `ClipMatcher()`
+directly raises the expected `ImportError` -- i.e. the failure now happens only at the point
+`--use-clip` is actually used, matching what the docs already claimed.
+
+Also fixed a real gap from the earlier `dev_notes/` reorganization: that pass updated `CLAUDE.md`,
+`KNOWLEDGE.md`, and `README.md`'s cross-references to the moved files, but missed
+`src/staff_id.py` itself, which had 26 bare `LOG.md` mentions and 1 `SOLUTION_PLAN.md` mention
+in its own docstring/comments (e.g. the module docstring's "Design rationale: SOLUTION_PLAN.md"
+line). Bulk-fixed the same way as the other files.

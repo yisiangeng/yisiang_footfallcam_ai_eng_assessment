@@ -3,8 +3,8 @@ staff_id.py — staff identification pipeline (formerly staff_id_v2.py; renamed 
 earlier motion-detection-based attempt at this file name was deleted, once this pipeline
 fully superseded it).
 
-Design rationale: SOLUTION_PLAN.md. Full history, including the earlier attempt and why it
-was replaced: LOG.md ("Testing 1" / "Round 2" entries).
+Design rationale: dev_notes/SOLUTION_PLAN.md. Full history, including the earlier attempt and why it
+was replaced: dev_notes/LOG.md ("Testing 1" / "Round 2" entries).
 
 Pipeline: YOLOv8-seg (person detection + instance masks) -> ByteTrack (ID-stable tracking,
 via ultralytics' built-in tracker) -> mask-aware torso ROI extraction -> CLIP cosine
@@ -28,17 +28,19 @@ import time
 from pathlib import Path
 
 import cv2
+import matplotlib
+matplotlib.use("Agg")  # headless-safe: this pipeline only ever saves plots to a file
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from ultralytics import YOLO
-from transformers import CLIPModel, CLIPImageProcessor
 
 PERSON_CLASS = 0
 NEUTRAL_BG = (128, 128, 128)
 VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".m4v")
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 LAB_DIST_SCALE = 80.0
-# Lab color distance is the primary signal, not CLIP. Measured on this footage (see LOG.md,
+# Lab color distance is the primary signal, not CLIP. Measured on this footage (see dev_notes/LOG.md,
 # "Round 2"): CLIP similarity was *anti-correlated* with the true match (true-match tracks
 # scored 0.69-0.71, clearly-wrong tracks scored 0.78-0.79) -- ViT-B/32, pretrained on natural
 # eye-level photos, doesn't transfer its clothing-color discrimination to these small, blurry,
@@ -66,7 +68,7 @@ def _wait_for_retry(path):
 def open_for_write_retrying(path, **kwargs):
     """open(path, 'w', ...) that retries on a locked file instead of crashing and losing a
     multi-minute processing run (hit in practice: user had the previous run's CSV open in
-    Excel -- see LOG.md, 'Round 2')."""
+    Excel -- see dev_notes/LOG.md, 'Round 2')."""
     while True:
         try:
             return open(path, "w", **kwargs)
@@ -325,7 +327,7 @@ def select_box_interactive(win_name, frame, banner_lines):
 
 def _prep_review_photo(crop_img, target_h=420, max_w=620):
     """Upscale a review crop for display -- INTER_CUBIC + a light unsharp-mask pass (see
-    LOG.md, 'Round 2' for why INTER_NEAREST was replaced), capped in width so an unusually
+    dev_notes/LOG.md, 'Round 2' for why INTER_NEAREST was replaced), capped in width so an unusually
     wide context crop doesn't blow up the window."""
     disp = crop_img.copy()
     h0 = max(disp.shape[0], 1)
@@ -346,7 +348,7 @@ def confirm_event_interactive(crop_imgs, event_num, total_events, start_s, end_s
     """Japandi/glassmorphic Y/N/S review card for one flagged event -- a frosted photo frame
     around each crop (1 or 2, shown side by side; see call site: a wider, highlighted context
     crop from the start *and* end of the fragment, not one tight torso crop, after a live test
-    found a single tight crop wasn't enough to make an identity judgement from -- see LOG.md,
+    found a single tight crop wasn't enough to make an identity judgement from -- see dev_notes/LOG.md,
     "Round 2"), an optional highlighted flag_note explaining *why* this event was flagged, and
     click-or-key pill buttons below it. Returns True (yes -> promote to staff), False (no ->
     confirmed not staff), or None (skip / decide later -> stays in the review CSV as
@@ -362,7 +364,7 @@ def confirm_event_interactive(crop_imgs, event_num, total_events, start_s, end_s
     row_h = max(d.shape[0] for d in disps) + photo_pad * 2
     # Header text can be wider than the photo row (e.g. a long flag_note) -- measure every
     # header line with the font it's actually drawn in, or it overflows the card's right edge
-    # (same bug pattern as the instruction banner; see LOG.md, "Round 2").
+    # (same bug pattern as the instruction banner; see dev_notes/LOG.md, "Round 2").
     text_w = max(
         cv2.getTextSize("Is this the staff member?", cv2.FONT_HERSHEY_DUPLEX, 0.95, 2)[0][0],
         cv2.getTextSize(f"Flagged: {flag_note}", cv2.FONT_HERSHEY_SIMPLEX, 0.62, 1)[0][0]
@@ -543,6 +545,10 @@ def get_frame(video_path, frame_idx):
 # --------------------------------------------------------------------------- #
 class ClipMatcher:
     def __init__(self, model_name=CLIP_MODEL_NAME, device="cpu"):
+        # Imported here, not at module level, so `transformers` is only required when
+        # --use-clip is actually passed (this class is only ever instantiated in that case)
+        # rather than for every run of the script.
+        from transformers import CLIPModel, CLIPImageProcessor
         self.device = device
         self.model = CLIPModel.from_pretrained(model_name).to(device).eval()
         self.processor = CLIPImageProcessor.from_pretrained(model_name)
@@ -555,7 +561,7 @@ class ClipMatcher:
         out = self.model.get_image_features(**inputs)
         feats = out.pooler_output  # transformers>=5: get_image_features returns a
         # BaseModelOutputWithPooling whose .pooler_output holds the projected CLIP
-        # embedding, not a plain tensor -- see LOG.md "Round 2" for how this was found.
+        # embedding, not a plain tensor -- see dev_notes/LOG.md "Round 2" for how this was found.
         feats = feats / feats.norm(dim=-1, keepdim=True)
         return feats.cpu().numpy()
 
@@ -588,7 +594,7 @@ def track_motion_stats(entries):
 BRIDGE_MAX_GAP_SECONDS = 1.0    # max time gap to bridge across between a confirmed-staff
 BRIDGE_MAX_JUMP_PX = 120.0      # fragment and an adjacent one, or across a true detection
 BRIDGE_COLOR_FLOOR = 0.3        # gap -- see bridge_track_fragments() / interpolate_staff_gaps().
-# Measured directly on sample.mp4 (see LOG.md, "Round 2" evaluation entry): even during the
+# Measured directly on sample.mp4 (see dev_notes/LOG.md, "Round 2" evaluation entry): even during the
 # plain-shirt period, where color-matching works cleanly, frame-level recall was only ~31%
 # because ByteTrack keeps losing and re-acquiring the walking person, splitting one continuous
 # walk into many short track fragments -- some too brief to individually clear
@@ -606,7 +612,7 @@ def bridge_track_fragments(track_scores, track_coords, staff_tracks, max_gap_sec
     row) gets pulled in as a chain, not just the one piece directly touching a confirmed track.
     A lenient color floor guards against bridging in an unrelated person who happens to be at
     the right place at the right time (rare, since two people can't occupy the same ~120px
-    spot within ~1s of each other except at a literal handoff) -- see LOG.md, "Round 2" for the
+    spot within ~1s of each other except at a literal handoff) -- see dev_notes/LOG.md, "Round 2" for the
     one real handoff found on this footage and why it's handled separately, not by this
     function (that case is a genuine, if brief, tracker ID-switch onto a different person, not
     a fragmented continuation of the same one; see split_event_by_color_outliers()).
@@ -652,7 +658,7 @@ def resolve_simultaneous_staff_conflicts(staff_tracks, track_scores, track_coord
     footage: a 201-frame, ~8s track (median score 0.55, just over --staff-threshold) and an
     18-frame track (median score 0.92) were both auto-qualified and shown as STAFF
     simultaneously in the same frames, because each was judged independently against the
-    threshold with no awareness of the other. See LOG.md, "Round 2".
+    threshold with no awareness of the other. See dev_notes/LOG.md, "Round 2".
 
     For each group of temporally-overlapping qualified tracks, keeps only the single
     highest-median-score one in `staff_tracks` (in place) and removes the rest. Unlike a
@@ -715,13 +721,13 @@ EVENT_MERGE_GAP_SECONDS = 5.0   # fragments this close in time are treated as on
 # Tuned empirically: even the confirmed real staff track fragmented into pieces with gaps up
 # to ~2.2s between them (tracker losing/re-acquiring during brief occlusion), so 2.0s was too
 # tight -- it split one real occurrence into several "events" that then falsely confirmed each
-# other as a repeating color via the check below. See LOG.md, "Round 2".
+# other as a repeating color via the check below. See dev_notes/LOG.md, "Round 2".
 COLOR_REPEAT_LAB_DIST = 20.0    # two events this close in color = same recurring (non-staff) person
 FRAGMENT_OUTLIER_LAB_DIST = 35.0  # a fragment's own color this far from its event's majority
 # color is treated as a likely different physical person, not just a lighting/pose blip --
 # see split_event_by_color_outliers(). Found necessary on real footage: a merged event can
 # still silently contain a tracker ID-switch onto a different person for part of its span
-# (see LOG.md, "Round 2" -- a second person made brief physical contact with the staff and the
+# (see dev_notes/LOG.md, "Round 2" -- a second person made brief physical contact with the staff and the
 # tracker handed the same "walking" chain off onto them for ~1s), which the event-merging below
 # can't catch on its own since it only ever checks *time* proximity between fragments.
 MAX_BRIDGE_SPEED_PX_PER_FRAME = 35.0  # an implied speed above this between two time-adjacent
@@ -731,7 +737,7 @@ MAX_BRIDGE_SPEED_PX_PER_FRAME = 35.0  # an implied speed above this between two 
 # real case: the staff (in a dark jacket) and a second person (in a similarly near-black shirt)
 # had almost identical mean Lab color (distance ~4, nowhere near FRAGMENT_OUTLIER_LAB_DIST), so
 # only position gave it away -- a ~126px jump between the two fragments' nearest frames, at the
-# exact moment the second person made physical contact with the staff. See LOG.md, "Round 2".
+# exact moment the second person made physical contact with the staff. See dev_notes/LOG.md, "Round 2".
 
 
 def split_event_by_position_jump(ev, track_scores, track_coords, track_lab_colors):
@@ -740,7 +746,7 @@ def split_event_by_position_jump(ev, track_scores, track_coords, track_lab_color
     mid-event by the tracker, not the same one walking. Complements
     split_event_by_color_outliers(), which can miss exactly this when the two people happen to
     be dressed in similarly-colored clothing -- found necessary on real footage, see
-    MAX_BRIDGE_SPEED_PX_PER_FRAME above and LOG.md, "Round 2". Run this *before* the color-outlier
+    MAX_BRIDGE_SPEED_PX_PER_FRAME above and dev_notes/LOG.md, "Round 2". Run this *before* the color-outlier
     split (find_possible_staff_events does), since a position-implausible boundary should be
     treated as a hard split regardless of what the color check would have concluded on its own.
 
@@ -803,7 +809,7 @@ def split_event_by_color_outliers(ev, track_scores, track_lab_colors):
     """One merged event (grouped by time proximity only, see find_possible_staff_events) can
     still silently contain a different physical person for part of its span -- e.g. a tracker
     ID-switch during brief physical contact between two people, found on real footage (see
-    LOG.md, "Round 2"): a second person briefly touched the staff and the tracker handed the
+    dev_notes/LOG.md, "Round 2"): a second person briefly touched the staff and the tracker handed the
     same walking chain off onto them for about a second before handing it back. A blanket
     Y/N/S confirmation over the whole event would approve (or reject) that switched-in
     fragment right along with everything else, since nothing before this function looks at
@@ -862,7 +868,7 @@ def split_event_by_color_outliers(ev, track_scores, track_lab_colors):
 
 def find_possible_staff_events(candidate_tids, track_scores, track_coords, track_lab_colors, fps):
     """Group unmatched-but-walking tracks into "events" (a real walk-through can fragment
-    into several track IDs -- see LOG.md, "Round 2" -- so raw track IDs would flood a review
+    into several track IDs -- see dev_notes/LOG.md, "Round 2" -- so raw track IDs would flood a review
     list with near-duplicates of the same event). Then drop any event whose color repeats
     across multiple separated events, since a color that keeps recurring is better explained
     by a regular non-staff person than a one-off clothing change. Each surviving event is then
@@ -871,10 +877,10 @@ def find_possible_staff_events(candidate_tids, track_scores, track_coords, track
     divergence (split_event_by_color_outliers) -- so a same-event tracker ID-switch onto a
     different person doesn't ride along with a blanket approval of the rest of the event. Position
     is checked first and separately because it catches a case color can't: two people dressed in
-    similarly-colored clothing (found on real footage -- see LOG.md, "Round 2"). What's left is
+    similarly-colored clothing (found on real footage -- see dev_notes/LOG.md, "Round 2"). What's left is
     flagged as `possible_staff`: same idea as a detective using timing/behaviour, not appearance,
     once appearance itself can't be trusted (e.g. staff changes into a jacket -- see conversation
-    that led to this, and LOG.md "Round 2").
+    that led to this, and dev_notes/LOG.md "Round 2").
 
     Returns a list of (possibly split) events, each a dict: track_ids, start_frame, end_frame,
     mean_lab, representative_track_id (the longest fragment, for a representative crop),
@@ -950,7 +956,7 @@ HIGHLIGHT_COLOR = (0, 215, 255)  # review popup -- a tight torso-only crop (the 
 # behavior) was found, directly by a user reviewing a real flagged event, to be too tight to
 # make an identity judgement from (no face, no surroundings for scale/context) -- they ended up
 # judging by clothing color instead, which is exactly the confounded signal in the one failure
-# case found so far (see LOG.md, "Round 2"). A generously padded crop with the actual person
+# case found so far (see dev_notes/LOG.md, "Round 2"). A generously padded crop with the actual person
 # highlighted (so it's still obvious who's being asked about) trades a bit of screen space for
 # a much better-informed human decision.
 
@@ -997,6 +1003,79 @@ def hstack_crops(crops, gap=8, gap_color=CREAM):
             parts.append(gap_strip)
         parts.append(c)
     return np.hstack(parts)
+
+
+TRAJECTORY_LINE_BREAK_SECONDS = 1.2  # connecting line breaks across gaps this long -- a
+                                     # straight line across a real absence would visually
+                                     # imply movement that never happened.
+HIGHLIGHT_MERGE_GAP_SECONDS = 0.2   # presence gaps this short are treated as one window
+HIGHLIGHT_PAD_SECONDS = 0.5         # context padding added before/after each window
+
+
+def render_staff_trajectory(points, fps, out_path):
+    """points: list of (frame_idx, timestamp_s, x, y) for every staff-present frame, in
+    frame order. Saves a scatter+line plot of the tracked (x, y) path, colored by time, to
+    out_path. Returns False (nothing written) if there are no staff-present frames at all."""
+    if not points:
+        return False
+    frames = [p[0] for p in points]
+    ts = [p[1] for p in points]
+    xs = [p[2] for p in points]
+    ys = [p[3] for p in points]
+
+    break_frames = max(1, int(TRAJECTORY_LINE_BREAK_SECONDS * fps))
+    xs_line, ys_line = [], []
+    for i, f in enumerate(frames):
+        if i > 0 and f - frames[i - 1] > break_frames:
+            xs_line.append(float("nan"))
+            ys_line.append(float("nan"))
+        xs_line.append(xs[i])
+        ys_line.append(ys[i])
+
+    fig, ax = plt.subplots(figsize=(7, 5.2), dpi=150)
+    sca = ax.scatter(xs, ys, c=ts, cmap="viridis", s=14, zorder=3)
+    ax.plot(xs_line, ys_line, color="#8a9a7b", linewidth=0.8, alpha=0.6, zorder=2)
+    ax.invert_yaxis()  # image coordinates: y grows downward
+    ax.set_xlabel("x (pixels)")
+    ax.set_ylabel("y (pixels)")
+    ax.set_title("Staff member's tracked (x, y) path over the video")
+    cbar = fig.colorbar(sca, ax=ax)
+    cbar.set_label("time (s)")
+    fig.tight_layout()
+    fig.savefig(str(out_path), facecolor="white")
+    plt.close(fig)
+    return True
+
+
+def compute_highlight_windows(present_frames, fps, n_frames):
+    """present_frames: sorted list of frame indices where staff is present. Groups them into
+    contiguous windows, pads each with a little context, then merges any windows that
+    overlap/touch after padding (so no frame is ever written twice into the highlight clip --
+    that would show as a visible stutter/repeat on playback). Returns a list of (start, end)
+    frame-index windows, inclusive."""
+    if not present_frames:
+        return []
+    merge_gap = max(1, int(HIGHLIGHT_MERGE_GAP_SECONDS * fps))
+    windows = []
+    start = prev = present_frames[0]
+    for f in present_frames[1:]:
+        if f - prev <= merge_gap:
+            prev = f
+            continue
+        windows.append((start, prev))
+        start = prev = f
+    windows.append((start, prev))
+
+    pad = int(HIGHLIGHT_PAD_SECONDS * fps)
+    merged = []
+    for s, e in windows:
+        s2, e2 = max(0, s - pad), min(n_frames - 1, e + pad)
+        if merged and s2 <= merged[-1][1] + 1:
+            ps, pe = merged[-1]
+            merged[-1] = (ps, max(pe, e2))
+        else:
+            merged.append((s2, e2))
+    return merged
 
 
 # --------------------------------------------------------------------------- #
@@ -1155,13 +1234,13 @@ def run(args):
         # scene has more than one similarly light-clothed person, so a seated/stationary
         # match is ambiguous (color alone can't disambiguate two people at the same desk)
         # while a person actually walking through the open corridor was the one context
-        # round 1 visually confirmed as unambiguous. See LOG.md, "Round 2".
+        # round 1 visually confirmed as unambiguous. See dev_notes/LOG.md, "Round 2".
         if speed < args.min_walk_speed or rng < args.min_walk_range:
             continue
         staff_tracks.add(tid)
 
     # ---- Bridge short/marginal fragments next to an already-confirmed staff sighting ---- #
-    # Measured to matter a lot (see LOG.md, "Round 2" evaluation entry): tracking fragmentation,
+    # Measured to matter a lot (see dev_notes/LOG.md, "Round 2" evaluation entry): tracking fragmentation,
     # not the appearance-matching ceiling, turned out to be the main cause of missed frames.
     bridged_tracks = bridge_track_fragments(
         track_scores, track_coords, staff_tracks,
@@ -1247,7 +1326,7 @@ def run(args):
     # change (e.g. a jacket over the tagged shirt) rather than genuinely someone else -- color
     # can't tell those two cases apart. Rather than guessing (or silently dropping them), ask
     # a human -- one keypress per flagged event, right here, instead of a separate manual
-    # investigation. See LOG.md, "Round 2" / conversation with the user for why automating
+    # investigation. See dev_notes/LOG.md, "Round 2" / conversation with the user for why automating
     # this call outright was rejected: color alone has already been shown (on this exact
     # video) to sometimes flag a genuinely different person, and a wrong auto-label would be
     # silent, while a flagged-for-review case costs a human a few seconds.
@@ -1267,7 +1346,7 @@ def run(args):
                           if any(d["track_id"] == rep_tid for d in per_frame_dets.get(f, []))]
 
             # Two context crops (start and end of the fragment, not just one) -- a single
-            # frame can be an unlucky one (motion blur, backlighting; see LOG.md, "Round 2" for
+            # frame can be an unlucky one (motion blur, backlighting; see dev_notes/LOG.md, "Round 2" for
             # a real case that looked like a solid black silhouette), so a second moment gives
             # a reviewer a better chance of a clear view.
             sample_frames = [rep_frames[0]] if len(rep_frames) == 1 else [rep_frames[0], rep_frames[-1]]
@@ -1333,7 +1412,7 @@ def run(args):
 
     # ---- Fill true detection gaps between staff sightings (no track at all for a few frames,
     # e.g. brief total occlusion) -- same reasoning as the fragment-bridging above, but for
-    # frames with no fragment to bridge in the first place. See LOG.md, "Round 2". ---- #
+    # frames with no fragment to bridge in the first place. See dev_notes/LOG.md, "Round 2". ---- #
     interpolated_coords = interpolate_staff_gaps(
         staff_tracks, track_coords, BRIDGE_MAX_GAP_SECONDS, BRIDGE_MAX_JUMP_PX, fps
     )
@@ -1369,6 +1448,8 @@ def run(args):
                           "match_score", "interpolated"])
         n_staff_rows = 0
         n_interpolated_rows = 0
+        trajectory_points = []
+        staff_present_frames = []
         for frame_idx in range(n_frames):
             ts = round(frame_idx / fps, 2)
             rows_written = 0
@@ -1383,14 +1464,29 @@ def run(args):
                                   round(det["score"], 4), False])
                 rows_written += 1
                 n_staff_rows += 1
+                trajectory_points.append((frame_idx, ts, x, y))
             if rows_written == 0 and frame_idx in interpolated_coords:
                 x, y = interpolated_coords[frame_idx]
                 writer.writerow([frame_idx, ts, True, "", round(x, 1), round(y, 1), "", True])
                 rows_written += 1
                 n_staff_rows += 1
                 n_interpolated_rows += 1
+                trajectory_points.append((frame_idx, ts, x, y))
             if rows_written == 0:
                 writer.writerow([frame_idx, ts, False, "", "", "", "", False])
+            if rows_written > 0:
+                staff_present_frames.append(frame_idx)
+
+    # ---- Trajectory plot: the staff member's (x, y) path over time ---- #
+    trajectory_path = out_dir / "staff_trajectory.png"
+    wrote_trajectory = render_staff_trajectory(trajectory_points, fps, trajectory_path)
+
+    # ---- Highlight clip windows: only the frames staff is actually present in ---- #
+    highlight_windows = compute_highlight_windows(staff_present_frames, fps, n_frames)
+    highlight_frame_set = set()
+    for s, e in highlight_windows:
+        highlight_frame_set.update(range(s, e + 1))
+    highlight_path = out_dir / "staff_highlight_clip.mp4"
 
     # ---- Pass 2: render annotated video (no re-detection, just reads + draws) ---- #
     flagged_tracks = {tid for ev in possible_events for tid in ev["track_ids"]}
@@ -1400,6 +1496,8 @@ def run(args):
     cap = cv2.VideoCapture(str(video_path))
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer_vid = open_video_writer_retrying(out_dir / "annotated.mp4", fourcc, fps, (W, H))
+    writer_highlight = (open_video_writer_retrying(highlight_path, fourcc, fps, (W, H))
+                         if highlight_frame_set else None)
     frame_idx = 0
     while True:
         ok, frame = cap.read()
@@ -1427,9 +1525,13 @@ def run(args):
             cv2.putText(frame, "STAFF (interpolated)", (int(ix) + 10, int(iy) - 8),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2, cv2.LINE_AA)
         writer_vid.write(frame)
+        if writer_highlight is not None and frame_idx in highlight_frame_set:
+            writer_highlight.write(frame)
         frame_idx += 1
     cap.release()
     writer_vid.release()
+    if writer_highlight is not None:
+        writer_highlight.release()
     pass2_elapsed = time.time() - pass2_t0
     print(f"Pass 2 complete -- took {format_duration(pass2_elapsed)}.")
 
@@ -1451,6 +1553,12 @@ def run(args):
     print(f"  Annotated video:     {out_dir / 'annotated.mp4'}  "
           f"(green=staff, yellow=still needs review, orange=other)")
     print(f"  Reference image:     {out_dir / 'reference_crop.jpg'}")
+    if wrote_trajectory:
+        print(f"  Trajectory plot:     {trajectory_path}")
+    if writer_highlight is not None:
+        highlight_frames = len(highlight_frame_set)
+        print(f"  Highlight clip:      {highlight_path}  "
+              f"({highlight_frames} frames, {highlight_frames / fps:.1f}s of {n_frames / fps:.1f}s)")
     if bridged_tracks:
         print(f"  Fragments bridged:   {len(bridged_tracks)} short/marginal track(s) pulled "
               f"into the staff result as continuations of a confirmed sighting")
@@ -1484,7 +1592,7 @@ def parse_args():
     p.add_argument("--use-clip", action="store_true",
                     help="Blend in CLIP cosine similarity (15%% weight). Off by default: "
                          "measured to be anti-correlated with the true match on this footage "
-                         "(see LOG.md, 'Round 2') -- kept as an opt-in experiment, not because "
+                         "(see dev_notes/LOG.md, 'Round 2') -- kept as an opt-in experiment, not because "
                          "it's expected to help.")
     p.add_argument("--min-track-seconds", type=float, default=0.3,
                     help="Tracks shorter than this are never counted as staff, to reject flicker.")
@@ -1496,7 +1604,7 @@ def parse_args():
                     help="Minimum average centroid speed (px/frame) for a color-matching track "
                          "to count as staff. Restricts detections to confirmed walking events "
                          "rather than any high-scoring seated/stationary match, since this scene "
-                         "has more than one similarly light-clothed person -- see LOG.md, 'Round 2'.")
+                         "has more than one similarly light-clothed person -- see dev_notes/LOG.md, 'Round 2'.")
     p.add_argument("--min-walk-range", type=float, default=40.0,
                     help="Minimum total positional range (px) a track must cover, alongside "
                          "--min-walk-speed, to count as a genuine walking event. Kept low "

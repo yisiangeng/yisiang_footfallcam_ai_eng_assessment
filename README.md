@@ -47,7 +47,6 @@ See `pipeline_diagram.png` for the full step-by-step diagram.
 | `requirements.txt` | Python dependencies |
 | `DOCUMENTATION_FINAL.md` | **Start here** — the short write-up: assumptions, methodology, results, and how to use it (a `.docx`/PDF copy can be generated from this on request) |
 | `pipeline_diagram.png` | Standalone copy of the pipeline diagram |
-| `demo_visuals/` | Extra visuals for a live demo: the staff member's (x, y) trajectory plotted over time, and a short highlight clip trimmed to just the frames they're present in |
 | `KNOWLEDGE.md` | Design reasoning: why the pipeline is built the way it is, and its known limitations. Not required reading, but the most useful of the internal notes if you only read one |
 | `AI Evaluation Test.pdf` | The original task brief |
 | `dev_notes/` | Personal working history (chronological build log, the original planning doc, the unabridged documentation draft, this document's own outline/brief, and archived debug images from an earlier discarded approach). Not required reading — kept for the author's own record, not for a reviewer |
@@ -87,6 +86,10 @@ For a first-time or live-demo run — no command-line flags needed:
 7. Open the `output/` folder when it's done:
    - `annotated.mp4` — the video with the staff member boxed in green, for a
      quick visual check
+   - `staff_highlight_clip.mp4` — a much shorter clip, trimmed to just the
+     parts where staff is present, for a faster demo
+   - `staff_trajectory.png` — a plot of the staff member's on-screen path
+     over the course of the video
    - `staff_detections.csv` — the frame-by-frame (x, y) location table
    - `possible_staff_review.csv` + `auto_rejected_conflicts.csv` — only
      created if something needed review; an audit trail of what was flagged
